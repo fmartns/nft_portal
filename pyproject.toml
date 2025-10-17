@@ -1,0 +1,58 @@
+
+[tool.poetry]
+name = "nft-portal"
+version = "0.1.0"
+description = ""
+authors = ["Filipe <filipe@fmartns.dev>"]
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = ">=3.11"
+django = "5.2.6"
+python-dotenv = ">=1.1.1,<2.0.0"
+djangorestframework = ">=3.16.1,<4.0.0"
+drf-spectacular = {extras = ["sidecar"], version = ">=0.28.0,<0.29.0"}
+django-filter = ">=25.1,<26.0"
+djangorestframework-simplejwt = {extras = ["blacklist"], version = ">=5.5.1,<6.0.0"}
+drf-spectacular-sidecar = ">=2025.9.1,<2026.0.0"
+psycopg2-binary = "^2.9.10"
+celery = {version = "5.5.3", extras = ["redis"]}
+redis = "==5.2.1"
+flower = "^2.0.1"
+requests = "^2.32.3"
+eth-account = {version = "^0.13.0", python = ">=3.11,<4"}
+pytz = "^2024.1"
+django-cors-headers = "^4.9.0"
+
+
+[tool.poetry.group.dev.dependencies]
+flower = "^2.0.1"
+pyright = "^1.1.406"
+django-stubs = {extras = ["compatible-mypy"], version = "^5.1.3"}
+djangorestframework-stubs = "^3.15.3"
+
+[tool.pyright]
+exclude = [
+    "**/migrations",
+    "**/__pycache__",
+    "**/node_modules",
+    ".venv",
+    "venv"
+]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+reportMissingTypeStubs = false
+reportAttributeAccessIssue = "none"
+reportOptionalMemberAccess = "none"
+reportOptionalSubscript = "none"
+reportPrivateImportUsage = "none"
+reportIndexIssue = "none"
+reportCallIssue = "none"
+reportOperatorIssue = "none"
+reportArgumentType = "none"
+reportAssignmentType = "none"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

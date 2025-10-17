@@ -1,0 +1,47 @@
+{
+  "include": [
+    "."
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    ".git",
+    ".venv",
+    "staticfiles",
+    "src",
+    "**/migrations"
+  ],
+  "ignore": [
+    "**/migrations/**",
+    "**/*.pyc"
+  ],
+  "defineConstant": {
+    "DEBUG": true
+  },
+  "stubPath": "",
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.11",
+  "pythonPlatform": "Windows",
+  "typeCheckingMode": "basic",
+  "useLibraryCodeForTypes": true,
+  "reportMissingImports": false,
+  "reportMissingTypeStubs": false,
+  "reportUnknownParameterType": false,
+  "reportUnknownArgumentType": false,
+  "reportUnknownLambdaType": false,
+  "reportUnknownVariableType": false,
+  "reportUnknownMemberType": false,
+  "reportMissingTypeArgument": false,
+  "reportUnnecessaryIsInstance": false,
+  "reportUnnecessaryComparison": false,
+  "reportAttributeAccessIssue": "none",
+  "reportOptionalMemberAccess": "none",
+  "reportOptionalSubscript": "none",
+  "reportPrivateImportUsage": "none",
+  "reportIndexIssue": "none",
+  "reportCallIssue": "none",
+  "reportOperatorIssue": "none",
+  "reportArgumentType": "none",
+  "reportAssignmentType": "none"
+}
