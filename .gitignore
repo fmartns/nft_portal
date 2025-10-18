@@ -24,7 +24,6 @@ env/
 venv/
 .venv*/
 venv*/
-poetry.lock
 
 # Arquivos de cache do IDE
 .vscode/
