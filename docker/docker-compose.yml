@@ -1,139 +1,116 @@
 services:
-  # frontend:
-  #   build:
-  #     context: ../frontend
-  #     dockerfile: Dockerfile
-  #   ports:
-  #     - "5173:5173"
-  #   volumes:
-  #     - ../frontend:/app
-  #     - /app/node_modules
-  #     - frontend_cache:/app/.vite
-  #   environment:
-  #     - NODE_ENV=development
-  #     - VITE_HMR_HOST=localhost
-  #   restart: unless-stopped
+  db:
+    image: postgres:16
+    env_file:
+      - ../.env
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    # Expor Postgres no host (apenas para desenvolvimento)
+    ports:
+      - "54321:5432"
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    # Não exponha redis pra Internet:
+    # ports:
+    #   - "6379:6379"
+
   web:
     build:
       context: ../
       dockerfile: docker/Dockerfile
-    command: ["/bin/sh", "-c", "python manage.py migrate --noinput && python manage.py runserver 0.0.0.0:8000"]
-    ports:
-      - "8001:8000"
-    environment:
-      - SECRET_KEY=django-insecure-your-secret-key-here-change-in-production
-      - DEBUG=True
-      - ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
-      - USE_POSTGRES=True
-      - POSTGRES_DB=nft_portal
-      - POSTGRES_USER=nftuser
-      - POSTGRES_PASSWORD=nftpassword123
-      - POSTGRES_HOST=db
-      - POSTGRES_PORT=5432
-      - FRONTEND_ORIGIN=http://localhost:5173
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    env_file:
+      - ../.env
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
-    restart: unless-stopped
-
-  db:
-    image: postgres:16
-    restart: unless-stopped
     environment:
-      - POSTGRES_DB=nft_portal
-      - POSTGRES_USER=nftuser
-      - POSTGRES_PASSWORD=nftpassword123
+      USE_POSTGRES: "1"
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+    command: >
+      /bin/sh -c "
+      python manage.py migrate --noinput &&
+      python manage.py collectstatic --noinput &&
+      gunicorn core.wsgi:application --bind 0.0.0.0:8000 --workers 3"
     ports:
-      - "5436:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U nftuser -d nft_portal || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
-  redis:
-    image: redis:7-alpine
+      - "8000:8000"
     restart: unless-stopped
-    ports:
-      - "6379:6379"
-    command: ["redis-server", "--appendonly", "yes"]
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
 
   celery_worker:
     build:
       context: ../
       dockerfile: docker/Dockerfile
-    command: ["/bin/sh", "-c", "python manage.py migrate --noinput && celery -A core worker -l info -Q celery,default -n worker1@%h -E"]
-    environment:
-      - SECRET_KEY=django-insecure-your-secret-key-here-change-in-production
-      - DEBUG=True
-      - ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
-      - USE_POSTGRES=True
-      - POSTGRES_DB=nft_portal
-      - POSTGRES_USER=nftuser
-      - POSTGRES_PASSWORD=nftpassword123
-      - POSTGRES_HOST=db
-      - POSTGRES_PORT=5432
-      - FRONTEND_ORIGIN=http://localhost:5173
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    env_file:
+      - ../.env
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+    environment:
+      USE_POSTGRES: "1"
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+    command: >
+      /bin/sh -c "
+      celery -A core worker -l info -Q celery,default -n worker1@%h -E"
     restart: unless-stopped
 
   celery_beat:
     build:
       context: ../
       dockerfile: docker/Dockerfile
-    command: ["/bin/sh", "-c", "python manage.py migrate --noinput && celery -A core beat -l info --schedule=/app/celerybeat-schedule/celerybeat-schedule"]
-    environment:
-      - SECRET_KEY=django-insecure-your-secret-key-here-change-in-production
-      - DEBUG=True
-      - ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
-      - USE_POSTGRES=True
-      - POSTGRES_DB=nft_portal
-      - POSTGRES_USER=nftuser
-      - POSTGRES_PASSWORD=nftpassword123
-      - POSTGRES_HOST=db
-      - POSTGRES_PORT=5432
-      - FRONTEND_ORIGIN=http://localhost:5173
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    env_file:
+      - ../.env
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+    environment:
+      USE_POSTGRES: "1"
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+    command: >
+      /bin/sh -c "
+      celery -A core beat -l info --schedule=/app/celerybeat-schedule/celerybeat-schedule"
     volumes:
       - celerybeat:/app/celerybeat-schedule
     restart: unless-stopped
 
   flower:
     image: mher/flower:2.0.1
-    ports:
-      - "5555:5555"
+    env_file:
+      - ../.env
     environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - FLOWER_PORT=5555
+      FLOWER_PORT: "5555"
+      # Opcional (se definiu no .env): FLOWER_BASIC_AUTH=user:pass
     depends_on:
       redis:
         condition: service_healthy
+    ports:
+      - "5555:5555"
     restart: unless-stopped
 
 volumes:
   pgdata:
+  redisdata:
   celerybeat:
-  frontend_cache:
