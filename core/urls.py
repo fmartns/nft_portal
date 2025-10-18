@@ -17,6 +17,7 @@ Including another URLconf
 
 from django.contrib import admin
 from django.urls import path, include
+from django.views.generic import RedirectView
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
@@ -38,5 +39,7 @@ urlpatterns = [
     path("redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
     path("accounts/", include("accounts.urls")),
     path("collections/", include("gallery.urls")),
+    path("", include("nft.urls")),
     path("", include("health.urls")),
+    path("", RedirectView.as_view(url="/docs/", permanent=False)),
 ]
