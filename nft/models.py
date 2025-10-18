@@ -15,9 +15,7 @@ class NFTItem(models.Model):
     item_sub_type = models.CharField(max_length=80, db_index=True, blank=True)
 
     number = models.IntegerField(blank=True, null=True)
-    product_code = models.CharField(
-        max_length=120, unique=True, blank=True, null=True
-    )
+    product_code = models.CharField(max_length=120, unique=True, blank=True, null=True)
     product_type = models.CharField(max_length=120, blank=True)
     material = models.CharField(max_length=120, blank=True)
 

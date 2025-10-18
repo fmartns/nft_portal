@@ -1,4 +1,3 @@
-from django.db.models import Q
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -12,6 +11,7 @@ from rest_framework.permissions import AllowAny
 
 class IsAuthenticatedOrReadOnly(permissions.IsAuthenticatedOrReadOnly):
     pass
+
 
 class NFTItemUpsertAPI(APIView):
     permission_classes = [AllowAny]
@@ -42,4 +42,6 @@ class NFTItemUpsertAPI(APIView):
             defaults=mapped,
         )
         out = NFTItemSerializer(obj)
-        return Response(out.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+        return Response(
+            out.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        )
