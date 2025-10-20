@@ -104,8 +104,7 @@ services:
       FLOWER_PORT: "5555"
       # Opcional (se definiu no .env): FLOWER_BASIC_AUTH=user:pass
     depends_on:
-      redis:
-        condition: service_healthy
+      - ../frontend:/app
     ports:
       - "5555:5555"
     restart: unless-stopped
