@@ -88,7 +88,7 @@ export function StatsSection() {
         {/* Additional insights */}
         <div className="mt-16 grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
           <div className="space-y-6">
-            <h3 className="text-2xl font-bold">Por que escolher o Habbo Marketplace?</h3>
+            <h3 className="text-2xl font-bold">Por que escolher o NFT Marketplace?</h3>
             <div className="space-y-4">
               <div className="flex items-start space-x-3">
                 <div className="h-6 w-6 rounded-full bg-[#FFE000] flex items-center justify-center flex-shrink-0 mt-0.5">

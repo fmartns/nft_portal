@@ -1,5 +1,5 @@
-export const API_BASE: string =
-  (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:8000';
+const envBase = (import.meta as any).env?.VITE_API_BASE_URL as string | undefined;
+export const API_BASE: string = envBase || 'https://api.nftmarketplace.com.br';
 
 export type HttpParams = Record<string, string | number | boolean | undefined | null>;
 

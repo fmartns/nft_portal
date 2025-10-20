@@ -1,9 +1,14 @@
-# Frontend Dockerfile - optimized for dev with volume mounts
-FROM node:20-alpine
-
+FROM node:20-alpine as deps
 WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
 
-EXPOSE 3000
+FROM node:20-alpine as build
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+ARG VITE_API_BASE_URL
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+RUN npm run build
 
-# Install deps on container start if vite is missing in node_modules (named volume may start empty)
-CMD ["sh", "-lc", "if [ ! -f node_modules/.bin/vite ]; then echo 'node_modules missing vite; running npm ci...' && npm ci; fi; exec npm run dev -- --host 0.0.0.0"]
+# Runtime stage not needed; assets served by nginx from volume

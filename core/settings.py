@@ -29,7 +29,7 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
 
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost").split(",")
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 
 
 # Application definition
@@ -162,10 +162,25 @@ STORAGES = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# CORS: liberar tudo temporariamente
-# Atenção: não use isso em produção sem restrições adequadas.
-CORS_ALLOW_ALL_ORIGINS = True
+FRONTEND_ORIGINS = [o for o in os.getenv("FRONTEND_ORIGINS", "").split(",") if o]
+API_ORIGIN = os.getenv("API_ORIGIN")  # e.g. https://api.nftmarketplace.com.br
+
+if FRONTEND_ORIGINS:
+    CORS_ALLOWED_ORIGINS = FRONTEND_ORIGINS
+else:
+    # fallback for dev
+    CORS_ALLOWED_ORIGINS = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+
 CORS_ALLOW_CREDENTIALS = True
+
+CSRF_TRUSTED_ORIGINS = []
+for origin in FRONTEND_ORIGINS:
+    CSRF_TRUSTED_ORIGINS.append(origin)
+if API_ORIGIN:
+    CSRF_TRUSTED_ORIGINS.append(API_ORIGIN)
 
 # Configure token lifetimes for Simple JWT
 # If tokens are expiring too quickly (or if there is small clock drift between services),
@@ -223,6 +238,16 @@ EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 EMAIL_USE_TLS = True
 EMAIL_USE_SSL = False
+
+# Secure proxy headers for correct HTTPS detection behind nginx
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+USE_X_FORWARDED_HOST = True
+
+# Cookie security in production
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_SAMESITE = "Lax"
 
 # Celery Configuration
 # See: https://docs.celeryq.dev/en/stable/django/first-steps-with-django.html

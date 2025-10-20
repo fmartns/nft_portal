@@ -229,7 +229,7 @@ export function Header({ onLogoClick, activeTab = 'home', onTabChange }: HeaderP
               </div>
             </div>
             <span className="text-lg font-bold text-[#FFE000]">
-              Habbo Marketplace
+              NFT Marketplace
             </span>
           </button>
 

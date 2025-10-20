@@ -14,7 +14,7 @@ export function Footer() {
                 <span className="text-black font-bold text-sm">H</span>
               </div>
               <span className="text-lg font-bold text-[#FFE000]">
-                Habbo Marketplace
+                NFT Marketplace
               </span>
             </div>
             <p className="text-muted-foreground text-sm">
