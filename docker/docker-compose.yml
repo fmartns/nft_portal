@@ -110,6 +110,22 @@ services:
       - "5555:5555"
     restart: unless-stopped
 
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    environment:
+      # Point frontend to backend service URL inside the compose network
+      - VITE_API_BASE_URL=http://127.0.0.1:8000
+    volumes:
+      - ../frontend:/app
+      - /app/node_modules
+    depends_on:
+      - web
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
 volumes:
   pgdata:
   redisdata:
