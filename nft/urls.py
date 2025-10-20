@@ -16,5 +16,7 @@ urlpatterns = [
     # POST record access to an item
     path("nft/items/view/", RecordNFTAccessAPI.as_view(), name="nft-items-record-view"),
     # GET top by access (last N days), default limit=4
-    path("nft/trending/", TrendingByAccessAPI.as_view(), name="nft-items-trending-access"),
+    path(
+        "nft/trending/", TrendingByAccessAPI.as_view(), name="nft-items-trending-access"
+    ),
 ]

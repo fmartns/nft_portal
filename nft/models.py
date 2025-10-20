@@ -85,6 +85,7 @@ class NFTItem(models.Model):
 
 class NFTItemAccess(models.Model):
     """Tracks user access/pageviews for NFT items."""
+
     item = models.ForeignKey(NFTItem, on_delete=models.CASCADE, related_name="accesses")
     accessed_at = models.DateTimeField(auto_now_add=True, db_index=True)
     ip_hash = models.CharField(max_length=64, blank=True, default="")
@@ -99,6 +100,7 @@ class NFTItemAccess(models.Model):
 
 class PricingConfig(models.Model):
     """Configuração global de preços (markup padrão)."""
+
     global_markup_percent = models.DecimalField(
         max_digits=5,
         decimal_places=2,

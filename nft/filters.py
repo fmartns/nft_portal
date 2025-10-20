@@ -2,8 +2,6 @@ import django_filters as filters
 from decimal import Decimal
 
 from .models import NFTItem
-from django.db.models import F, DecimalField, ExpressionWrapper, Value as V
-from django.db.models.functions import Coalesce
 from .models import PricingConfig
 
 
@@ -24,8 +22,12 @@ class NFTItemFilter(filters.FilterSet):
     max_price_brl = filters.NumberFilter(field_name="last_price_brl", lookup_expr="lte")
 
     # Collection filtering: by id or slug
-    collection_id = filters.NumberFilter(field_name="collection__id", lookup_expr="exact")
-    collection_slug = filters.CharFilter(field_name="collection__slug", lookup_expr="iexact")
+    collection_id = filters.NumberFilter(
+        field_name="collection__id", lookup_expr="exact"
+    )
+    collection_slug = filters.CharFilter(
+        field_name="collection__slug", lookup_expr="iexact"
+    )
     # Use a custom method-based filter that robustly parses truthy values
     promo_only = filters.CharFilter(method="filter_promo_only")
 
@@ -58,9 +60,17 @@ class NFTItemFilter(filters.FilterSet):
             return queryset
 
         # Get latest global markup percent; default to 30.00 if not set
-        cfg = PricingConfig.objects.order_by("-updated_at").only("global_markup_percent").first()
+        cfg = (
+            PricingConfig.objects.order_by("-updated_at")
+            .only("global_markup_percent")
+            .first()
+        )
         global_markup = (
-            cfg.global_markup_percent if cfg and cfg.global_markup_percent is not None else Decimal("30.00")
+            cfg.global_markup_percent
+            if cfg and cfg.global_markup_percent is not None
+            else Decimal("30.00")
         )
         # Items with markup_percent explicitly set and less than global
-        return queryset.filter(markup_percent__isnull=False, markup_percent__lt=global_markup)
+        return queryset.filter(
+            markup_percent__isnull=False, markup_percent__lt=global_markup
+        )

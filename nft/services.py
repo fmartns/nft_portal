@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timedelta, timezone
 
 import requests
+from .models import PricingConfig, NFTItem
 import time
 from random import random
 
@@ -15,14 +16,15 @@ logger = logging.getLogger(__name__)
 
 
 IMMUTABLE_BASE_URL = "https://api.x.immutable.com/v3/orders"
-from django.db.models import QuerySet
-from .models import PricingConfig, NFTItem
 
 DEFAULT_MARKUP_MULTIPLIER = Decimal("1.30")
 
 # Simple in-process cache for rates to avoid frequent 429s and reduce latency
-_RATES_CACHE: Optional[Tuple[Decimal, Decimal, float]] = None  # (eth_usd, usd_brl, expires_at_epoch)
+_RATES_CACHE: Optional[Tuple[Decimal, Decimal, float]] = (
+    None  # (eth_usd, usd_brl, expires_at_epoch)
+)
 _RATES_TTL_SECONDS = 180.0  # 3 minutes
+
 
 def _get_markup_multiplier_for(product_code: Optional[str]) -> Decimal:
     """Return the price multiplier based on per-item or global markup.
@@ -31,12 +33,20 @@ def _get_markup_multiplier_for(product_code: Optional[str]) -> Decimal:
     """
     try:
         if product_code:
-            item = NFTItem.objects.filter(product_code=product_code).only("markup_percent").first()
+            item = (
+                NFTItem.objects.filter(product_code=product_code)
+                .only("markup_percent")
+                .first()
+            )
             if item and item.markup_percent is not None:
-                return (Decimal("1") + (Decimal(item.markup_percent) / Decimal("100")))
-        cfg = PricingConfig.objects.order_by("-updated_at").only("global_markup_percent").first()
+                return Decimal("1") + (Decimal(item.markup_percent) / Decimal("100"))
+        cfg = (
+            PricingConfig.objects.order_by("-updated_at")
+            .only("global_markup_percent")
+            .first()
+        )
         if cfg and cfg.global_markup_percent is not None:
-            return (Decimal("1") + (Decimal(cfg.global_markup_percent) / Decimal("100")))
+            return Decimal("1") + (Decimal(cfg.global_markup_percent) / Decimal("100"))
     except Exception:
         pass
     return DEFAULT_MARKUP_MULTIPLIER
@@ -44,6 +54,8 @@ def _get_markup_multiplier_for(product_code: Optional[str]) -> Decimal:
 
 class ImmutableAPIError(Exception):
     """Raised when Immutable API returns a non-success status code."""
+
+
 def _get_json_with_retries(
     url: str,
     *,
@@ -61,9 +73,14 @@ def _get_json_with_retries(
     # Perform up to `retries` attempts total
     while attempt < retries:
         try:
-            base_headers = {"Accept": "application/json", "User-Agent": "nft-portal/1.0"}
+            base_headers = {
+                "Accept": "application/json",
+                "User-Agent": "nft-portal/1.0",
+            }
             merged_headers = {**base_headers, **(headers or {})}
-            resp = requests.get(url, params=params, headers=merged_headers, timeout=timeout)
+            resp = requests.get(
+                url, params=params, headers=merged_headers, timeout=timeout
+            )
             if resp.status_code == 200:
                 try:
                     return resp.json()
@@ -72,7 +89,7 @@ def _get_json_with_retries(
                     return None
             if resp.status_code in status_forcelist:
                 # Backoff and retry
-                sleep_s = backoff_factor * (2 ** attempt) + (random() * 0.1)
+                sleep_s = backoff_factor * (2**attempt) + (random() * 0.1)
                 logger.warning(
                     "HTTP %s from %s; retrying in %.2fs (attempt %d/%d)",
                     resp.status_code,
@@ -89,7 +106,7 @@ def _get_json_with_retries(
             return None
         except Exception as e:
             # Network error; retry with backoff
-            sleep_s = backoff_factor * (2 ** attempt) + (random() * 0.1)
+            sleep_s = backoff_factor * (2**attempt) + (random() * 0.1)
             logger.warning(
                 "GET failed %s: %s; retrying in %.2fs (attempt %d/%d)",
                 url,
@@ -101,7 +118,6 @@ def _get_json_with_retries(
             time.sleep(sleep_s)
             attempt += 1
     return None
-
 
 
 def get_current_rates() -> Tuple[Decimal, Decimal]:
@@ -184,7 +200,13 @@ def _extract_buy_info(order: Dict[str, Any]) -> Tuple[str, int, int, Optional[st
     return buy_type, quantity_int, decimals, token_address
 
 
-def _convert_order_to_prices(order: Dict[str, Any], eth_usd: Decimal, usd_brl: Decimal, *, product_code: Optional[str] = None) -> Optional[Tuple[Decimal, Decimal, Decimal]]:
+def _convert_order_to_prices(
+    order: Dict[str, Any],
+    eth_usd: Decimal,
+    usd_brl: Decimal,
+    *,
+    product_code: Optional[str] = None,
+) -> Optional[Tuple[Decimal, Decimal, Decimal]]:
     """Return last_price_eth, last_price_usd, last_price_brl (all with markup applied) for the given order.
     Supports:
       - ETH-denominated orders (18 decimals, convert via eth_usd)
@@ -201,28 +223,44 @@ def _convert_order_to_prices(order: Dict[str, Any], eth_usd: Decimal, usd_brl: D
             # Use float math to mimic JS toFixed pipeline before rounding
             usd_pre = float(eth_raw) * float(eth_usd)
             brl_pre = usd_pre * float(usd_brl)
-            price_usd = Decimal(str(usd_pre)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            price_brl_pre = Decimal(str(brl_pre)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            price_usd = Decimal(str(usd_pre)).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            price_brl_pre = Decimal(str(brl_pre)).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
             # Frontend parity: if ETH amount is meaningful but BRL looks implausibly small (e.g., cents),
             # recompute BRL using fallback rates so we never show R$ 0,xx for ~0.07 ETH.
             try:
                 if eth_raw > Decimal("0.01") and price_brl_pre < Decimal("10"):
                     fallback_eth_usd = Decimal("4713.59")
                     fallback_usd_brl = Decimal("5.42")
-                    brl_fb = float(eth_raw) * float(fallback_eth_usd) * float(fallback_usd_brl)
-                    price_brl_pre = Decimal(str(brl_fb)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                    brl_fb = (
+                        float(eth_raw)
+                        * float(fallback_eth_usd)
+                        * float(fallback_usd_brl)
+                    )
+                    price_brl_pre = Decimal(str(brl_fb)).quantize(
+                        Decimal("0.01"), rounding=ROUND_HALF_UP
+                    )
             except Exception:
                 pass
         elif buy_type == "ERC20" and decimals == 6:
             # Treat 6-decimal ERC20 as USD stablecoin (e.g., USDC/USDT)
-            amount_usd = (Decimal(qty_int) / (Decimal(10) ** Decimal(decimals)))
+            amount_usd = Decimal(qty_int) / (Decimal(10) ** Decimal(decimals))
             # Use float math to mimic JS toFixed before rounding
             usd_pre = float(amount_usd)
             brl_pre = usd_pre * float(usd_brl)
-            price_usd = Decimal(str(usd_pre)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            price_usd = Decimal(str(usd_pre)).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
             # Derive synthetic ETH for consistency
-            price_eth = (price_usd / eth_usd).quantize(Decimal("0.000000000000000001"), rounding=ROUND_HALF_UP)
-            price_brl_pre = Decimal(str(brl_pre)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            price_eth = (price_usd / eth_usd).quantize(
+                Decimal("0.000000000000000001"), rounding=ROUND_HALF_UP
+            )
+            price_brl_pre = Decimal(str(brl_pre)).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
         else:
             # Unsupported token type/decimals for now
             return None
@@ -231,18 +269,32 @@ def _convert_order_to_prices(order: Dict[str, Any], eth_usd: Decimal, usd_brl: D
         mult = _get_markup_multiplier_for(product_code)
         # ETH: apply markup to raw ETH then quantize to 8 decimals for output
         if buy_type == "ETH":
-            price_eth_out = (eth_raw * mult).quantize(Decimal("0.00000001"), rounding=ROUND_HALF_UP)
+            price_eth_out = (eth_raw * mult).quantize(
+                Decimal("0.00000001"), rounding=ROUND_HALF_UP
+            )
         else:
-            price_eth_out = (price_eth * mult).quantize(Decimal("0.00000001"), rounding=ROUND_HALF_UP)
-        price_usd_out = (price_usd * mult).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        price_brl_out = (price_brl_pre * mult).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            price_eth_out = (price_eth * mult).quantize(
+                Decimal("0.00000001"), rounding=ROUND_HALF_UP
+            )
+        price_usd_out = (price_usd * mult).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        price_brl_out = (price_brl_pre * mult).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
 
         return price_eth_out, price_usd_out, price_brl_out
     except Exception:
         return None
 
 
-def pick_best_bid_order(orders: List[Dict[str, Any]], eth_usd: Decimal, usd_brl: Decimal, *, product_code: Optional[str] = None) -> Tuple[Optional[Dict[str, Any]], Optional[Tuple[Decimal, Decimal, Decimal]]]:
+def pick_best_bid_order(
+    orders: List[Dict[str, Any]],
+    eth_usd: Decimal,
+    usd_brl: Decimal,
+    *,
+    product_code: Optional[str] = None,
+) -> Tuple[Optional[Dict[str, Any]], Optional[Tuple[Decimal, Decimal, Decimal]]]:
     """Select the order with the lowest BRL price, prioritizing ETH-denominated orders.
     Returns (best_order, (price_eth, price_usd, price_brl)) with markup applied, or (None, None).
 
@@ -262,7 +314,9 @@ def pick_best_bid_order(orders: List[Dict[str, Any]], eth_usd: Decimal, usd_brl:
         if buy_type != "ETH":
             # Skip non-ETH orders to avoid inconsistencies with listing display
             continue
-        prices = _convert_order_to_prices(order, eth_usd, usd_brl, product_code=product_code)
+        prices = _convert_order_to_prices(
+            order, eth_usd, usd_brl, product_code=product_code
+        )
         if prices is None:
             continue
         _, _, brl = prices
@@ -274,7 +328,9 @@ def pick_best_bid_order(orders: List[Dict[str, Any]], eth_usd: Decimal, usd_brl:
     # If no ETH orders found, fall back to previous behavior across supported currencies
     if best_order is None:
         for order in orders:
-            prices = _convert_order_to_prices(order, eth_usd, usd_brl, product_code=product_code)
+            prices = _convert_order_to_prices(
+                order, eth_usd, usd_brl, product_code=product_code
+            )
             if prices is None:
                 continue
             _, _, brl = prices
@@ -338,20 +394,32 @@ def map_order_to_item_fields(
         price_eth = Decimal("0")
         if order:
             # Try to convert based on buy leg; fallback to ETH path
-            conv = _convert_order_to_prices(order, eth_usd, usd_brl, product_code=product_code)
+            conv = _convert_order_to_prices(
+                order, eth_usd, usd_brl, product_code=product_code
+            )
             if conv is not None:
                 price_eth, price_usd, price_brl = conv
             else:
                 # Legacy path based on _price_wei when available
                 if "_price_wei" in order:
                     price_eth = _wei_to_eth(int(order["_price_wei"]))
-                    price_usd = (price_eth * eth_usd).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-                    price_brl = (price_usd * usd_brl).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                    price_usd = (price_eth * eth_usd).quantize(
+                        Decimal("0.01"), rounding=ROUND_HALF_UP
+                    )
+                    price_brl = (price_usd * usd_brl).quantize(
+                        Decimal("0.01"), rounding=ROUND_HALF_UP
+                    )
                     # Apply markup (legacy path)
                     mult = _get_markup_multiplier_for(product_code)
-                    price_eth = (price_eth * mult).quantize(Decimal("0.000000000000000001"))
-                    price_usd = (price_usd * mult).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-                    price_brl = (price_brl * mult).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                    price_eth = (price_eth * mult).quantize(
+                        Decimal("0.000000000000000001")
+                    )
+                    price_usd = (price_usd * mult).quantize(
+                        Decimal("0.01"), rounding=ROUND_HALF_UP
+                    )
+                    price_brl = (price_brl * mult).quantize(
+                        Decimal("0.01"), rounding=ROUND_HALF_UP
+                    )
                 else:
                     price_usd = Decimal("0")
                     price_brl = Decimal("0")
@@ -379,7 +447,9 @@ def map_order_to_item_fields(
     return mapped
 
 
-def _paginate_immutable(params: Dict[str, Any], headers: Dict[str, str], max_pages: int = 50) -> List[Dict[str, Any]]:
+def _paginate_immutable(
+    params: Dict[str, Any], headers: Dict[str, str], max_pages: int = 50
+) -> List[Dict[str, Any]]:
     """Fetch all pages from Immutable orders endpoint using cursor."""
     all_results: List[Dict[str, Any]] = []
     cursor: Optional[str] = None
@@ -387,18 +457,31 @@ def _paginate_immutable(params: Dict[str, Any], headers: Dict[str, str], max_pag
         page_params = params.copy()
         if cursor:
             page_params["cursor"] = cursor
-        data = _get_json_with_retries(IMMUTABLE_BASE_URL, params=page_params, headers=headers, timeout=30, retries=4)
+        data = _get_json_with_retries(
+            IMMUTABLE_BASE_URL,
+            params=page_params,
+            headers=headers,
+            timeout=30,
+            retries=4,
+        )
         if not isinstance(data, dict):
             break
         items = data.get("result") or []
         all_results.extend(items)
         # Handle cursors that can be either strings or nested objects
         next_cursor = data.get("next_cursor")
+
         def _nc(obj: Any) -> Optional[str]:
             if isinstance(obj, dict):
                 return obj.get("next_cursor")
             return None
-        cursor = next_cursor or _nc(data.get("cursor")) or _nc(data.get("page_cursor")) or _nc(data.get("page"))
+
+        cursor = (
+            next_cursor
+            or _nc(data.get("cursor"))
+            or _nc(data.get("page_cursor"))
+            or _nc(data.get("page"))
+        )
         if not cursor:
             break
     return all_results
@@ -436,7 +519,12 @@ def fetch_7d_sales_stats(product_code: str) -> Dict[str, Any]:
         try:
             # Try to derive a timestamp from fields
             ts = None
-            for key in ("updated_timestamp", "timestamp", "created_timestamp", "filled_timestamp"):
+            for key in (
+                "updated_timestamp",
+                "timestamp",
+                "created_timestamp",
+                "filled_timestamp",
+            ):
                 val = o.get(key)
                 if val is None:
                     continue
@@ -449,7 +537,9 @@ def fetch_7d_sales_stats(product_code: str) -> Dict[str, Any]:
                         ts_candidate = datetime.fromtimestamp(float(s), tz=timezone.utc)
                     else:
                         try:
-                            ts_candidate = datetime.fromisoformat(s.replace("Z", "+00:00"))
+                            ts_candidate = datetime.fromisoformat(
+                                s.replace("Z", "+00:00")
+                            )
                         except Exception:
                             continue
                 ts = ts_candidate
@@ -457,7 +547,9 @@ def fetch_7d_sales_stats(product_code: str) -> Dict[str, Any]:
             if not ts or ts < seven_days_ago:
                 continue
 
-            conv = _convert_order_to_prices(o, eth_usd, usd_brl, product_code=product_code)
+            conv = _convert_order_to_prices(
+                o, eth_usd, usd_brl, product_code=product_code
+            )
             if conv is None:
                 continue
             _, _, price_brl = conv
@@ -469,11 +561,17 @@ def fetch_7d_sales_stats(product_code: str) -> Dict[str, Any]:
 
     count = len(sales)
     volume_brl = sum((p for _, p in sales), Decimal("0")) if count else Decimal("0")
-    avg_brl = (volume_brl / count).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if count else Decimal("0")
+    avg_brl = (
+        (volume_brl / count).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if count
+        else Decimal("0")
+    )
     last_brl = sales[-1][1] if count else Decimal("0")
     change_pct = Decimal("0")
     if count >= 2 and sales[0][1] > 0:
-        change_pct = ((last_brl - sales[0][1]) / sales[0][1] * Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        change_pct = ((last_brl - sales[0][1]) / sales[0][1] * Decimal("100")).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
 
     return {
         "seven_day_volume_brl": volume_brl,
@@ -485,7 +583,9 @@ def fetch_7d_sales_stats(product_code: str) -> Dict[str, Any]:
     }
 
 
-def fetch_item_from_immutable(product_code: str) -> Tuple[Dict[str, Any], Optional[str]]:
+def fetch_item_from_immutable(
+    product_code: str,
+) -> Tuple[Dict[str, Any], Optional[str]]:
     """
     Orchestrates fetching orders for the given product_code from Immutable,
     picking the best order, converting prices, and mapping to NFTItem fields.
@@ -516,7 +616,9 @@ def fetch_item_from_immutable(product_code: str) -> Tuple[Dict[str, Any], Option
             if results:
                 break
             # Even if empty list, confirm the call works by doing a single page fetch
-            data = _get_json_with_retries(IMMUTABLE_BASE_URL, params=pp, headers=headers, timeout=30, retries=4)
+            data = _get_json_with_retries(
+                IMMUTABLE_BASE_URL, params=pp, headers=headers, timeout=30, retries=4
+            )
             if isinstance(data, dict):
                 results = data.get("result") or []
                 break
@@ -528,8 +630,12 @@ def fetch_item_from_immutable(product_code: str) -> Tuple[Dict[str, Any], Option
         raise ImmutableAPIError("Erro ao consultar a Immutable") from last_err
 
     eth_usd, usd_brl = get_current_rates()
-    best, prices = pick_best_bid_order(results, eth_usd, usd_brl, product_code=product_code)
-    mapped = map_order_to_item_fields(best, product_code, eth_usd, usd_brl, override_prices=prices)
+    best, prices = pick_best_bid_order(
+        results, eth_usd, usd_brl, product_code=product_code
+    )
+    mapped = map_order_to_item_fields(
+        best, product_code, eth_usd, usd_brl, override_prices=prices
+    )
 
     # Extract possible collection contract address from the best order
     collection_address: Optional[str] = None
@@ -560,7 +666,9 @@ def fetch_item_from_immutable(product_code: str) -> Tuple[Dict[str, Any], Option
     return mapped, collection_address
 
 
-def fetch_min_listing_prices(product_code: str) -> Optional[Tuple[Decimal, Decimal, Decimal]]:
+def fetch_min_listing_prices(
+    product_code: str,
+) -> Optional[Tuple[Decimal, Decimal, Decimal]]:
     """Fetch all active orders and return the minimum (eth, usd, brl) with markup applied,
     mirroring frontend listing conversions.
 
@@ -589,7 +697,9 @@ def fetch_min_listing_prices(product_code: str) -> Optional[Tuple[Decimal, Decim
             results = _paginate_immutable(pp, headers)
             if results:
                 break
-            data = _get_json_with_retries(IMMUTABLE_BASE_URL, params=pp, headers=headers, timeout=30, retries=4)
+            data = _get_json_with_retries(
+                IMMUTABLE_BASE_URL, params=pp, headers=headers, timeout=30, retries=4
+            )
             if isinstance(data, dict):
                 results = data.get("result") or []
                 break

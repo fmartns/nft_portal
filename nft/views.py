@@ -8,8 +8,17 @@ from django.db.models import Count, Max
 from django.utils import timezone
 from datetime import timedelta
 from .models import NFTItem, NFTItemAccess, PricingConfig
-from .serializers import NFTItemSerializer, FetchByProductCodeSerializer, RecordAccessSerializer
-from .services import fetch_item_from_immutable, ImmutableAPIError, fetch_7d_sales_stats, fetch_min_listing_prices
+from .serializers import (
+    NFTItemSerializer,
+    FetchByProductCodeSerializer,
+    RecordAccessSerializer,
+)
+from .services import (
+    fetch_item_from_immutable,
+    ImmutableAPIError,
+    fetch_7d_sales_stats,
+    fetch_min_listing_prices,
+)
 from rest_framework.permissions import AllowAny
 from .filters import NFTItemFilter
 from gallery.models import NftCollection
@@ -44,14 +53,22 @@ class NFTItemUpsertAPI(APIView):
             )
 
         # Resolve the collection: by contract address if available, or from existing item
-        existing_item = NFTItem.objects.filter(product_code=product_code).only("id", "collection_id").first()
+        existing_item = (
+            NFTItem.objects.filter(product_code=product_code)
+            .only("id", "collection_id")
+            .first()
+        )
         collection_obj = None
         if collection_address:
-            collection_obj = NftCollection.objects.filter(address__iexact=collection_address).first()
+            collection_obj = NftCollection.objects.filter(
+                address__iexact=collection_address
+            ).first()
         if not collection_obj and existing_item and existing_item.collection_id:
             # Keep previously linked collection if present
             try:
-                collection_obj = NftCollection.objects.filter(id=existing_item.collection_id).first()
+                collection_obj = NftCollection.objects.filter(
+                    id=existing_item.collection_id
+                ).first()
             except Exception:
                 collection_obj = None
 
@@ -102,7 +119,11 @@ class NFTItemListAPI(generics.ListAPIView):
     permission_classes = [AllowAny]
     filterset_class = NFTItemFilter
     # Enable filtering, search and ordering backends
-    filter_backends = [DjangoFilterBackend, drf_filters.SearchFilter, drf_filters.OrderingFilter]
+    filter_backends = [
+        DjangoFilterBackend,
+        drf_filters.SearchFilter,
+        drf_filters.OrderingFilter,
+    ]
     search_fields = ["name", "product_code"]
     ordering_fields = [
         "name",
@@ -134,11 +155,20 @@ class NFTItemListAPI(generics.ListAPIView):
             apply = str(val).strip().lower() in truthy
         if apply:
             from decimal import Decimal
-            cfg = PricingConfig.objects.order_by("-updated_at").only("global_markup_percent").first()
-            global_markup = (
-                cfg.global_markup_percent if cfg and cfg.global_markup_percent is not None else Decimal("30.00")
+
+            cfg = (
+                PricingConfig.objects.order_by("-updated_at")
+                .only("global_markup_percent")
+                .first()
             )
-            qs = qs.filter(markup_percent__isnull=False, markup_percent__lt=global_markup)
+            global_markup = (
+                cfg.global_markup_percent
+                if cfg and cfg.global_markup_percent is not None
+                else Decimal("30.00")
+            )
+            qs = qs.filter(
+                markup_percent__isnull=False, markup_percent__lt=global_markup
+            )
         return qs
 
 
@@ -156,12 +186,15 @@ class RecordNFTAccessAPI(APIView):
         elif product_code:
             obj = NFTItem.objects.filter(product_code=product_code).first()
         if not obj:
-            return Response({"detail": "Item não encontrado"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"detail": "Item não encontrado"}, status=status.HTTP_404_NOT_FOUND
+            )
 
         # Derive simple hashes to avoid storing raw PII
         def _hash(s: str) -> str:
             try:
                 import hashlib
+
                 return hashlib.sha256(s.encode("utf-8")).hexdigest()
             except Exception:
                 return ""
@@ -195,7 +228,7 @@ class TrendingByAccessAPI(APIView):
             NFTItemAccess.objects.filter(accessed_at__gte=since)
             .values("item")
             .annotate(cnt=Count("id"), last_access=Max("accessed_at"))
-            .order_by("-last_access", "-cnt")[: limit]
+            .order_by("-last_access", "-cnt")[:limit]
         )
         ids = [row["item"] for row in qs]
         items = list(NFTItem.objects.filter(id__in=ids))

@@ -22,7 +22,9 @@ nft_item_upsert_schema = extend_schema(
     responses={
         200: OpenApiResponse(response=NFTItemSerializer, description="Item atualizado"),
         201: OpenApiResponse(response=NFTItemSerializer, description="Item criado"),
-        400: OpenApiResponse(description="Erro de validação / rate limit / coleção ausente"),
+        400: OpenApiResponse(
+            description="Erro de validação / rate limit / coleção ausente"
+        ),
         502: OpenApiResponse(description="Falha ao consultar a Immutable"),
     },
     examples=[
@@ -77,8 +79,8 @@ nft_item_list_schema = extend_schema(
         "- is_craft_material (boolean)\n"
         "- min_price_brl (number)\n"
         "- max_price_brl (number)\n"
-    "- collection_id (number)\n"
-    "- collection_slug (string)\n"
+        "- collection_id (number)\n"
+        "- collection_slug (string)\n"
         "Busca: "
         "use o parâmetro 'search' para procurar por nome ou product_code.\n"
         "Ordenação: use 'ordering', ex.: ordering=last_price_brl,-updated_at."
@@ -86,16 +88,30 @@ nft_item_list_schema = extend_schema(
     parameters=[
         OpenApiParameter(name="rarity", type=str, location=OpenApiParameter.QUERY),
         OpenApiParameter(name="item_type", type=str, location=OpenApiParameter.QUERY),
-        OpenApiParameter(name="item_sub_type", type=str, location=OpenApiParameter.QUERY),
+        OpenApiParameter(
+            name="item_sub_type", type=str, location=OpenApiParameter.QUERY
+        ),
         OpenApiParameter(name="material", type=str, location=OpenApiParameter.QUERY),
         OpenApiParameter(name="source", type=str, location=OpenApiParameter.QUERY),
-        OpenApiParameter(name="is_crafted_item", type=bool, location=OpenApiParameter.QUERY),
-        OpenApiParameter(name="is_craft_material", type=bool, location=OpenApiParameter.QUERY),
-        OpenApiParameter(name="min_price_brl", type=float, location=OpenApiParameter.QUERY),
-        OpenApiParameter(name="max_price_brl", type=float, location=OpenApiParameter.QUERY),
-    OpenApiParameter(name="collection_id", type=int, location=OpenApiParameter.QUERY),
-    OpenApiParameter(name="collection_slug", type=str, location=OpenApiParameter.QUERY),
-    OpenApiParameter(name="search", type=str, location=OpenApiParameter.QUERY),
+        OpenApiParameter(
+            name="is_crafted_item", type=bool, location=OpenApiParameter.QUERY
+        ),
+        OpenApiParameter(
+            name="is_craft_material", type=bool, location=OpenApiParameter.QUERY
+        ),
+        OpenApiParameter(
+            name="min_price_brl", type=float, location=OpenApiParameter.QUERY
+        ),
+        OpenApiParameter(
+            name="max_price_brl", type=float, location=OpenApiParameter.QUERY
+        ),
+        OpenApiParameter(
+            name="collection_id", type=int, location=OpenApiParameter.QUERY
+        ),
+        OpenApiParameter(
+            name="collection_slug", type=str, location=OpenApiParameter.QUERY
+        ),
+        OpenApiParameter(name="search", type=str, location=OpenApiParameter.QUERY),
         OpenApiParameter(name="ordering", type=str, location=OpenApiParameter.QUERY),
         OpenApiParameter(name="page", type=int, location=OpenApiParameter.QUERY),
         OpenApiParameter(name="page_size", type=int, location=OpenApiParameter.QUERY),

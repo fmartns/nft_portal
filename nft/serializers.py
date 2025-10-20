@@ -3,7 +3,7 @@ from typing import Any
 
 from rest_framework import serializers
 
-from .models import NFTItem, NFTItemAccess
+from .models import NFTItem
 
 
 class FetchByProductCodeSerializer(serializers.Serializer):
@@ -56,7 +56,9 @@ class NFTItemSerializer(serializers.ModelSerializer):
 
 
 class RecordAccessSerializer(serializers.Serializer):
-    product_code = serializers.CharField(max_length=120, required=False, allow_blank=True)
+    product_code = serializers.CharField(
+        max_length=120, required=False, allow_blank=True
+    )
     item_id = serializers.IntegerField(required=False)
 
     def validate(self, attrs: Any) -> Any:
