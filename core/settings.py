@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     "accounts",
     # Installed apps
     "rest_framework",
+    "django_filters",
     "corsheaders",
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",

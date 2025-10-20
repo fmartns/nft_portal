@@ -86,7 +86,7 @@ class CollectionDetailAPIView(APIView):
     DELETE: Remove a coleção
     """
 
-    permission_classes = [IsAuthenticatedOrReadOnly]
+    permission_classes = [AllowAny]
     serializer_class = NftCollectionSerializer
 
     def get_object(self, slug):
