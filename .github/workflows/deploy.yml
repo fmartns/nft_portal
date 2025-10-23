@@ -95,11 +95,14 @@ jobs:
           sudo docker pull "$ECR_REGISTRY/$ECR_REPOSITORY-web:$TAG"
           sudo docker pull "$ECR_REGISTRY/$ECR_REPOSITORY-frontend:$TAG"
           
-          # Stop and remove old containers
-          sudo docker compose -f /opt/nft_portal/docker/docker-compose.prod.yml down --remove-orphans || true
+          # Stop containers gracefully (preserving data volumes)
+          sudo docker compose -f /opt/nft_portal/docker/docker-compose.prod.yml down || true
           
-          # Remove any remaining containers with conflicting names
-          sudo docker rm -f docker-certbot-1 docker-redis-1 docker-db-1 docker-web-1 docker-frontend-1 docker-nginx-1 docker-celery_worker-1 docker-celery_beat-1 docker-flower-1 || true
+          # Only remove containers that don't have persistent data
+          sudo docker rm -f docker-certbot-1 docker-web-1 docker-frontend-1 docker-nginx-1 docker-celery_worker-1 docker-celery_beat-1 docker-flower-1 || true
+          
+          # Keep db and redis containers running to preserve data
+          sudo docker start docker-db-1 docker-redis-1 || true
           
           # Update environment
           sudo tee /opt/nft_portal/.env >/dev/null << ENVEOF
@@ -120,8 +123,16 @@ jobs:
           LE_EMAIL=$LE_EMAIL
           ENVEOF
           
-          # Start containers
+          # Deploy strategy: preserve database data
           cd /opt/nft_portal
+          
+          # Stop only application containers (keep db/redis running)
+          sudo docker stop docker-web-1 docker-frontend-1 docker-nginx-1 docker-celery_worker-1 docker-celery_beat-1 docker-flower-1 docker-certbot-1 || true
+          
+          # Remove only application containers (preserve db/redis)
+          sudo docker rm docker-web-1 docker-frontend-1 docker-nginx-1 docker-celery_worker-1 docker-celery_beat-1 docker-flower-1 docker-certbot-1 || true
+          
+          # Start all containers (db/redis will continue with existing data)
           sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
             docker compose -f docker/docker-compose.prod.yml up -d
           
