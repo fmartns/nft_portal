@@ -159,6 +159,62 @@ jobs:
         id: ecrpass
         run: echo "password=$(aws ecr get-login-password --region $AWS_REGION)" >> $GITHUB_OUTPUT
 
+      - name: Create deploy script
+        run: |
+          cat > deploy.sh << 'EOF'
+          #!/bin/bash
+          set -e
+          
+          # Prepare directories
+          sudo mkdir -p /opt/nft_portal/docker/nginx
+          
+          # Deploy files
+          echo "$COMPOSE_B64" | base64 -d | sudo tee /opt/nft_portal/docker/docker-compose.prod.yml >/dev/null
+          echo "$NGINX_B64" | base64 -d | sudo tee /opt/nft_portal/docker/nginx/nginx.conf >/dev/null
+          echo "$NGINX_SSL_B64" | base64 -d | sudo tee /opt/nft_portal/docker/nginx/nginx.ssl.conf >/dev/null
+          
+          # Create .env file
+          sudo mkdir -p /opt/nft_portal
+          sudo tee /opt/nft_portal/.env >/dev/null << ENVEOF
+          SECRET_KEY=$SECRET_KEY
+          DEBUG=False
+          ALLOWED_HOSTS=nftmarketplace.com.br,www.nftmarketplace.com.br,api.nftmarketplace.com.br
+          USE_POSTGRES=1
+          POSTGRES_HOST=db
+          POSTGRES_PORT=5432
+          POSTGRES_DB=$POSTGRES_DB
+          POSTGRES_USER=$POSTGRES_USER
+          POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+          CELERY_BROKER_URL=redis://redis:6379/0
+          CELERY_RESULT_BACKEND=redis://redis:6379/0
+          FRONTEND_ORIGINS=https://nftmarketplace.com.br,https://www.nftmarketplace.com.br
+          API_ORIGIN=https://api.nftmarketplace.com.br
+          FLOWER_BASIC_AUTH=$FLOWER_BASIC_AUTH
+          LE_EMAIL=$LE_EMAIL
+          ENVEOF
+          sudo chmod 600 /opt/nft_portal/.env
+          
+          # Login to ECR
+          echo "$ECR_PASSWORD" | sudo docker login --username AWS --password-stdin "$ECR_REGISTRY"
+          
+          # Deploy
+          cd /opt/nft_portal
+          sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+            docker compose -f docker/docker-compose.prod.yml pull
+          sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+            docker compose -f docker/docker-compose.prod.yml up -d
+          
+          # Wait for services to be ready
+          sleep 30
+          
+          # Check status
+          sudo docker ps
+          sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+            docker compose -f docker/docker-compose.prod.yml ps
+          
+          echo "Deploy completed successfully"
+          EOF
+
       - name: Deploy on EC2
         shell: bash
         env:
@@ -188,70 +244,21 @@ jobs:
           ssh-keyscan -T 5 -p 22 "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
           
           echo "Deploying to EC2..."
-          ssh -i ~/.ssh/ec2_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 "$EC2_USER@$EC2_HOST" \
-            ECR_REGISTRY="$ECR_REGISTRY" \
-            ECR_REPOSITORY="$ECR_REPOSITORY" \
-            TAG="$TAG" \
-            AWS_REGION="$AWS_REGION" \
-            ECR_PASSWORD="$ECR_PASSWORD" \
-            COMPOSE_B64="$COMPOSE_B64" \
-            NGINX_B64="$NGINX_B64" \
-            NGINX_SSL_B64="$NGINX_SSL_B64" \
-            SECRET_KEY="$SECRET_KEY" \
-            POSTGRES_DB="$POSTGRES_DB" \
-            POSTGRES_USER="$POSTGRES_USER" \
-            POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-            FLOWER_BASIC_AUTH="$FLOWER_BASIC_AUTH" \
-            LE_EMAIL="$LE_EMAIL" \
-            'bash -s' << 'REMOTE_SCRIPT'
-          set -e
-          
-          # Prepare directories
-          sudo mkdir -p /opt/nft_portal/docker/nginx
-          
-          # Deploy files
-          echo "$COMPOSE_B64" | base64 -d | sudo tee /opt/nft_portal/docker/docker-compose.prod.yml >/dev/null
-          echo "$NGINX_B64" | base64 -d | sudo tee /opt/nft_portal/docker/nginx/nginx.conf >/dev/null
-          echo "$NGINX_SSL_B64" | base64 -d | sudo tee /opt/nft_portal/docker/nginx/nginx.ssl.conf >/dev/null
-          
-          # Create .env file
-          sudo mkdir -p /opt/nft_portal
-          sudo tee /opt/nft_portal/.env >/dev/null << EOF
-          SECRET_KEY=$SECRET_KEY
-          DEBUG=False
-          ALLOWED_HOSTS=nftmarketplace.com.br,www.nftmarketplace.com.br,api.nftmarketplace.com.br
-          USE_POSTGRES=1
-          POSTGRES_HOST=db
-          POSTGRES_PORT=5432
-          POSTGRES_DB=$POSTGRES_DB
-          POSTGRES_USER=$POSTGRES_USER
-          POSTGRES_PASSWORD=$POSTGRES_PASSWORD
-          CELERY_BROKER_URL=redis://redis:6379/0
-          CELERY_RESULT_BACKEND=redis://redis:6379/0
-          FRONTEND_ORIGINS=https://nftmarketplace.com.br,https://www.nftmarketplace.com.br
-          API_ORIGIN=https://api.nftmarketplace.com.br
-          FLOWER_BASIC_AUTH=$FLOWER_BASIC_AUTH
-          LE_EMAIL=$LE_EMAIL
-          EOF
-          sudo chmod 600 /opt/nft_portal/.env
-          
-          # Login to ECR
-          echo "$ECR_PASSWORD" | sudo docker login --username AWS --password-stdin "$ECR_REGISTRY"
-          
-          # Deploy
-          cd /opt/nft_portal
-          sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
-            docker compose -f docker/docker-compose.prod.yml pull
-          sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
-            docker compose -f docker/docker-compose.prod.yml up -d
-          
-          # Wait for services to be ready
-          sleep 30
-          
-          # Check status
-          sudo docker ps
-          sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
-            docker compose -f docker/docker-compose.prod.yml ps
-          
-          echo "Deploy completed successfully"
-          REMOTE_SCRIPT
+          scp -i ~/.ssh/ec2_key -o StrictHostKeyChecking=no deploy.sh "$EC2_USER@$EC2_HOST":/tmp/
+          ssh -i ~/.ssh/ec2_key -o StrictHostKeyChecking=no "$EC2_USER@$EC2_HOST" \
+            "chmod +x /tmp/deploy.sh && \
+            ECR_REGISTRY='$ECR_REGISTRY' \
+            ECR_REPOSITORY='$ECR_REPOSITORY' \
+            TAG='$TAG' \
+            AWS_REGION='$AWS_REGION' \
+            ECR_PASSWORD='$ECR_PASSWORD' \
+            COMPOSE_B64='$COMPOSE_B64' \
+            NGINX_B64='$NGINX_B64' \
+            NGINX_SSL_B64='$NGINX_SSL_B64' \
+            SECRET_KEY='$SECRET_KEY' \
+            POSTGRES_DB='$POSTGRES_DB' \
+            POSTGRES_USER='$POSTGRES_USER' \
+            POSTGRES_PASSWORD='$POSTGRES_PASSWORD' \
+            FLOWER_BASIC_AUTH='$FLOWER_BASIC_AUTH' \
+            LE_EMAIL='$LE_EMAIL' \
+            /tmp/deploy.sh"
