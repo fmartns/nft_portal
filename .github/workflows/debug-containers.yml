@@ -1,0 +1,85 @@
+name: Debug Deploy Issues
+
+on:
+  workflow_dispatch:
+
+env:
+  AWS_REGION: sa-east-1
+  ECR_REPOSITORY: nft-portal
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      packages: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Debug EC2 containers
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$EC2_KEY" > ~/.ssh/ec2_key
+          chmod 600 ~/.ssh/ec2_key
+          
+          echo "=== Debugging EC2 containers ==="
+          ssh -i ~/.ssh/ec2_key -o StrictHostKeyChecking=no "$EC2_USER@$EC2_HOST" << 'EOF'
+          
+          echo "=== Container status ==="
+          sudo docker ps -a
+          
+          echo ""
+          echo "=== Web container logs ==="
+          sudo docker logs docker-web-1 --tail=50
+          
+          echo ""
+          echo "=== Database logs ==="
+          sudo docker logs docker-db-1 --tail=20
+          
+          echo ""
+          echo "=== Redis logs ==="
+          sudo docker logs docker-redis-1 --tail=20
+          
+          echo ""
+          echo "=== Health check details ==="
+          sudo docker inspect docker-web-1 | grep -A 10 -B 5 Health
+          
+          echo ""
+          echo "=== Testing Django health endpoint ==="
+          sudo docker exec docker-web-1 curl -f http://localhost:8000/health/ || echo "Health check failed"
+          
+          echo ""
+          echo "=== Checking .env file ==="
+          sudo cat /opt/nft_portal/.env
+          
+          echo ""
+          echo "=== Testing database connection ==="
+          sudo docker exec docker-web-1 python manage.py dbshell -c "SELECT 1;" || echo "Database connection failed"
+          
+          echo ""
+          echo "=== Checking migrations ==="
+          sudo docker exec docker-web-1 python manage.py showmigrations
+          
+          echo ""
+          echo "=== Checking static files ==="
+          sudo docker exec docker-web-1 ls -la /app/staticfiles/
+          
+          echo ""
+          echo "=== Checking if Django is running ==="
+          sudo docker exec docker-web-1 ps aux | grep python
+          
+          EOF
