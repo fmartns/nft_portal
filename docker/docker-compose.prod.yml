@@ -103,7 +103,7 @@ services:
     volumes:
       - frontend_dist:/dist
     command: >
-      sh -lc "rm -rf /dist/* && cp -r dist/* /dist/ && echo 'Frontend assets published' && tail -f /dev/null"
+      sh -lc "mkdir -p /dist && if [ -d /app/dist ] && [ \"$(ls -A /app/dist 2>/dev/null)\" ]; then rm -rf /dist/*; cp -r /app/dist/* /dist/; echo 'Frontend assets published'; else echo 'WARNING: /app/dist not found or empty in image'; fi; tail -f /dev/null"
     depends_on:
       - web
     restart: unless-stopped
@@ -118,9 +118,18 @@ services:
       - frontend_dist:/usr/share/nginx/html:ro
       - staticfiles:/app/staticfiles:ro
       - media:/app/media:ro
+      - letsencrypt:/etc/letsencrypt
+      - certbot-challenge:/var/www/certbot
     ports:
       - "80:80"
     restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot-challenge:/var/www/certbot
+    entrypoint: ["sh", "-c", "sleep infinity"]
 
 volumes:
   pgdata:
@@ -129,3 +138,5 @@ volumes:
   staticfiles:
   media:
   frontend_dist:
+  letsencrypt:
+  certbot-challenge:

@@ -91,7 +91,7 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           # Comma-separated patterns to avoid empty tar issue
-          source: "docker/docker-compose.prod.yml,docker/nginx/nginx.conf"
+          source: "docker/docker-compose.prod.yml,docker/nginx/nginx.conf,docker/nginx/nginx.ssl.conf"
           # Upload to a user-writable absolute location; we'll move with sudo in the next step
           target: /home/${{ secrets.EC2_USER }}/.nft_portal_upload
 
@@ -147,5 +147,24 @@ jobs:
               docker compose -f docker/docker-compose.prod.yml pull
             sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
               docker compose -f docker/docker-compose.prod.yml up -d
+            # Obtain/renew Let's Encrypt certificate (requires LE_EMAIL in /opt/nft_portal/.env)
+            LE_EMAIL=$(grep -E '^LE_EMAIL=' /opt/nft_portal/.env | sed 's/^LE_EMAIL=//') || true
+            if [ -z "$LE_EMAIL" ]; then
+              echo "WARNING: LE_EMAIL not set in /opt/nft_portal/.env. Skipping certificate issuance."
+            else
+              # Ensure nginx is serving ACME webroot on 80 first (already running with non-SSL config)
+              sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+                docker compose -f docker/docker-compose.prod.yml run --rm certbot \
+                certbot certonly --non-interactive --agree-tos --no-eff-email \
+                  --email "$LE_EMAIL" --webroot -w /var/www/certbot \
+                  -d nftmarketplace.com.br -d www.nftmarketplace.com.br -d api.nftmarketplace.com.br || true
+              # If cert exists, switch nginx to SSL config and reload
+              if sudo test -f /var/lib/docker/volumes/docker_letsencrypt/_data/live/nftmarketplace.com.br/fullchain.pem; then
+                sudo cp -f /opt/nft_portal/docker/nginx/nginx.ssl.conf /opt/nft_portal/docker/nginx/nginx.conf
+                sudo docker compose -f docker/docker-compose.prod.yml exec -T nginx nginx -s reload || sudo docker compose -f docker/docker-compose.prod.yml restart nginx
+              else
+                echo "WARNING: Certificate not found. Keeping HTTP-only config."
+              fi
+            fi
             # Optional cleanup
             sudo docker image prune -f
