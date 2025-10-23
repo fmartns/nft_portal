@@ -94,6 +94,12 @@ jobs:
           source: "docker/docker-compose.prod.yml,docker/nginx/nginx.conf,docker/nginx/nginx.ssl.conf"
           # Upload to a user-writable absolute location; we'll move with sudo in the next step
           target: /home/${{ secrets.EC2_USER }}/.nft_portal_upload
+          overwrite: true
+          rm: true
+          strip_components: 0
+          debug: true
+          timeout: 2m
+          command_timeout: 2m
 
       - name: Get ECR login password (runner)
         id: ecrpass
