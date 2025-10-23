@@ -92,16 +92,15 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           # Comma-separated patterns to avoid empty tar issue
           source: "docker/docker-compose.prod.yml,docker/nginx/nginx.conf"
-          # Upload to a user-writable location; we'll move with sudo in the next step
-          target: ~/.nft_portal_upload
+          # Upload to a user-writable absolute location; we'll move with sudo in the next step
+          target: /home/${{ secrets.EC2_USER }}/.nft_portal_upload
+
+      - name: Get ECR login password (runner)
+        id: ecrpass
+        run: echo "password=$(aws ecr get-login-password --region $AWS_REGION)" >> $GITHUB_OUTPUT
 
       - name: Deploy on EC2 (pull images and restart)
         uses: appleboy/ssh-action@v1.1.0
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
-          TAG: ${{ steps.vars.outputs.sha }}
-          AWS_REGION: ${{ env.AWS_REGION }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
@@ -110,6 +109,12 @@ jobs:
           script_stop: true
           script: |
             set -e
+            # Inject environment from runner
+            ECR_REGISTRY="${{ steps.login-ecr.outputs.registry }}"
+            ECR_REPOSITORY="${{ env.ECR_REPOSITORY }}"
+            TAG="${{ steps.vars.outputs.sha }}"
+            AWS_REGION="${{ env.AWS_REGION }}"
+            ECR_PASSWORD="${{ steps.ecrpass.outputs.password }}"
             UPLOAD_DIR="$HOME/.nft_portal_upload"
             # Prepare target directories
             sudo mkdir -p /opt/nft_portal/docker/nginx
@@ -134,21 +139,12 @@ jobs:
             fi
 
             cd /opt/nft_portal
-            # Ensure AWS CLI is available for ECR login (best-effort install if missing)
-            if ! command -v aws >/dev/null 2>&1; then
-              echo "AWS CLI not found. Attempting to install..."
-              if command -v apt-get >/dev/null 2>&1; then
-                sudo apt-get update -y && sudo apt-get install -y awscli || true
-              elif command -v yum >/dev/null 2>&1; then
-                sudo yum install -y awscli || true
-              fi
-            fi
-            # Login to ECR from the EC2 instance
-            aws ecr get-login-password --region ${AWS_REGION} | sudo docker login --username AWS --password-stdin ${ECR_REGISTRY}
+            # Login to ECR using password from runner (no awscli required on EC2)
+            echo "${ECR_PASSWORD}" | sudo docker login --username AWS --password-stdin "${ECR_REGISTRY}"
 
-            export ECR_REGISTRY=${ECR_REGISTRY}
-            export ECR_REPOSITORY=${ECR_REPOSITORY}
-            export TAG=${TAG}
+            export ECR_REGISTRY
+            export ECR_REPOSITORY
+            export TAG
 
             # Pull and start updated services
             sudo docker compose -f docker/docker-compose.prod.yml pull
