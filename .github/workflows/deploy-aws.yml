@@ -48,7 +48,7 @@ jobs:
         run: |
           echo "=== Testing AWS connection ==="
           aws sts get-caller-identity
-          echo "✅ AWS connection successful"
+          echo "AWS connection successful"
 
       - name: Ensure ECR repositories exist
         shell: bash
@@ -60,9 +60,9 @@ jobs:
             if ! aws ecr describe-repositories --repository-names "$repo" >/dev/null 2>&1; then
               echo "Creating ECR repo: $repo"
               aws ecr create-repository --repository-name "$repo" >/dev/null
-              echo "✅ Created ECR repo: $repo"
+              echo "Created ECR repo: $repo"
             else
-              echo "✅ ECR repo exists: $repo"
+              echo "ECR repo exists: $repo"
             fi
           done
 
