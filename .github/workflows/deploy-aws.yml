@@ -111,160 +111,179 @@ jobs:
         id: ecrpass
         run: echo "password=$(aws ecr get-login-password --region $AWS_REGION)" >> $GITHUB_OUTPUT
 
-      - name: Deploy on EC2 (pull images and restart)
-        uses: appleboy/ssh-action@v1.1.0
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
-          debug: true
-          timeout: 2m
-          command_timeout: 5m
-          script_stop: true
-          script: |
-            set -e
-            # Silence benign compose/drone warnings about unset variable
-            export DRONE_SSH_PREV_COMMAND_EXIT_CODE=0
-            # Inject environment from runner
-            ECR_REGISTRY="${{ steps.login-ecr.outputs.registry }}"
-            ECR_REPOSITORY="${{ env.ECR_REPOSITORY }}"
-            TAG="${{ steps.vars.outputs.sha }}"
-            AWS_REGION="${{ env.AWS_REGION }}"
-            ECR_PASSWORD="${{ steps.ecrpass.outputs.password }}"
-            # Prepare target directories
-            sudo mkdir -p /opt/nft_portal/docker/nginx
-            # Reconstruct deployment files from base64-encoded outputs
-            echo "${{ steps.encode.outputs.compose_b64 }}" | base64 -d | sudo tee /opt/nft_portal/docker/docker-compose.prod.yml >/dev/null
-            echo "${{ steps.encode.outputs.nginx_b64 }}" | base64 -d | sudo tee /opt/nft_portal/docker/nginx/nginx.conf >/dev/null
-            echo "${{ steps.encode.outputs.nginx_ssl_b64 }}" | base64 -d | sudo tee /opt/nft_portal/docker/nginx/nginx.ssl.conf >/dev/null
+      - name: Deploy on EC2 via OpenSSH (pull images and restart)
+        shell: bash
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_KEY: ${{ secrets.EC2_SSH_KEY }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
+          TAG: ${{ steps.vars.outputs.sha }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          ECR_PASSWORD: ${{ steps.ecrpass.outputs.password }}
+          COMPOSE_B64: ${{ steps.encode.outputs.compose_b64 }}
+          NGINX_B64: ${{ steps.encode.outputs.nginx_b64 }}
+          NGINX_SSL_B64: ${{ steps.encode.outputs.nginx_ssl_b64 }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          FLOWER_BASIC_AUTH: ${{ secrets.FLOWER_BASIC_AUTH }}
+          LE_EMAIL: ${{ secrets.LE_EMAIL }}
+        run: |
+          set -euo pipefail
+          echo "[SSH] Preparing key and known_hosts"
+          mkdir -p ~/.ssh
+          echo "$EC2_KEY" > ~/.ssh/ec2_key
+          chmod 600 ~/.ssh/ec2_key
+          # Optional: prefetch host key to avoid prompts (skip on failure)
+          ssh-keyscan -T 5 -p 22 "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          echo "[SSH] Connecting and executing remote deploy script"
+          ssh -i ~/.ssh/ec2_key -o StrictHostKeyChecking=no -o ConnectTimeout=15 "$EC2_USER@$EC2_HOST" \
+            ECR_REGISTRY="$ECR_REGISTRY" \
+            ECR_REPOSITORY="$ECR_REPOSITORY" \
+            TAG="$TAG" \
+            AWS_REGION="$AWS_REGION" \
+            ECR_PASSWORD="$ECR_PASSWORD" \
+            COMPOSE_B64="$COMPOSE_B64" \
+            NGINX_B64="$NGINX_B64" \
+            NGINX_SSL_B64="$NGINX_SSL_B64" \
+            SECRET_KEY="$SECRET_KEY" \
+            POSTGRES_DB="$POSTGRES_DB" \
+            POSTGRES_USER="$POSTGRES_USER" \
+            POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+            FLOWER_BASIC_AUTH="$FLOWER_BASIC_AUTH" \
+            LE_EMAIL="$LE_EMAIL" \
+            'bash -s' <<'REMOTE'
+          set -e
+          # Prepare target directories
+          sudo mkdir -p /opt/nft_portal/docker/nginx
+          # Reconstruct deployment files from base64-encoded outputs
+          echo "$COMPOSE_B64" | base64 -d | sudo tee /opt/nft_portal/docker/docker-compose.prod.yml >/dev/null
+          echo "$NGINX_B64" | base64 -d | sudo tee /opt/nft_portal/docker/nginx/nginx.conf >/dev/null
+          echo "$NGINX_SSL_B64" | base64 -d | sudo tee /opt/nft_portal/docker/nginx/nginx.ssl.conf >/dev/null
 
-            # (Re)generate /opt/nft_portal/.env from GitHub Secrets to avoid drift on server
-            echo "[DEPLOY] Writing /opt/nft_portal/.env from GitHub Secrets"
-            sudo mkdir -p /opt/nft_portal
-            umask 077
-            sudo tee /opt/nft_portal/.env >/dev/null <<'EOF'
-            SECRET_KEY=${{ secrets.SECRET_KEY }}
-            DEBUG=False
-            ALLOWED_HOSTS=nftmarketplace.com.br,www.nftmarketplace.com.br,api.nftmarketplace.com.br
+          # (Re)generate /opt/nft_portal/.env from GitHub Secrets to avoid drift on server
+          echo "[DEPLOY] Writing /opt/nft_portal/.env from GitHub Secrets"
+          sudo mkdir -p /opt/nft_portal
+          umask 077
+          # Build the .env file line-by-line to avoid YAML/heredoc indentation issues
+          sudo bash -c 'cat /dev/null > /opt/nft_portal/.env'
+          sudo bash -c 'printf "%s=%s\n" SECRET_KEY "$SECRET_KEY" >> /opt/nft_portal/.env'
+          sudo bash -c 'printf "%s\n" "DEBUG=False" >> /opt/nft_portal/.env'
+          sudo bash -c 'printf "%s\n" "ALLOWED_HOSTS=nftmarketplace.com.br,www.nftmarketplace.com.br,api.nftmarketplace.com.br" >> /opt/nft_portal/.env'
 
-            # Database
-            USE_POSTGRES=1
-            POSTGRES_HOST=db
-            POSTGRES_PORT=5432
-            POSTGRES_DB=${{ secrets.POSTGRES_DB }}
-            POSTGRES_USER=${{ secrets.POSTGRES_USER }}
-            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+          # Database
+          sudo bash -c 'printf "%s\n" "USE_POSTGRES=1" >> /opt/nft_portal/.env'
+          sudo bash -c 'printf "%s\n" "POSTGRES_HOST=db" >> /opt/nft_portal/.env'
+          sudo bash -c 'printf "%s\n" "POSTGRES_PORT=5432" >> /opt/nft_portal/.env'
+          sudo bash -c 'printf "%s=%s\n" POSTGRES_DB "$POSTGRES_DB" >> /opt/nft_portal/.env'
+          sudo bash -c 'printf "%s=%s\n" POSTGRES_USER "$POSTGRES_USER" >> /opt/nft_portal/.env'
+          sudo bash -c 'printf "%s=%s\n" POSTGRES_PASSWORD "$POSTGRES_PASSWORD" >> /opt/nft_portal/.env'
 
-            # Celery / Redis
-            CELERY_BROKER_URL=redis://redis:6379/0
-            CELERY_RESULT_BACKEND=redis://redis:6379/0
+          # Celery / Redis
+          sudo bash -c 'printf "%s\n" "CELERY_BROKER_URL=redis://redis:6379/0" >> /opt/nft_portal/.env'
+          sudo bash -c 'printf "%s\n" "CELERY_RESULT_BACKEND=redis://redis:6379/0" >> /opt/nft_portal/.env'
 
-            # CORS/CSRF
-            FRONTEND_ORIGINS=https://nftmarketplace.com.br,https://www.nftmarketplace.com.br
-            API_ORIGIN=https://api.nftmarketplace.com.br
+          # CORS/CSRF
+          sudo bash -c 'printf "%s\n" "FRONTEND_ORIGINS=https://nftmarketplace.com.br,https://www.nftmarketplace.com.br" >> /opt/nft_portal/.env'
+          sudo bash -c 'printf "%s\n" "API_ORIGIN=https://api.nftmarketplace.com.br" >> /opt/nft_portal/.env'
 
-            # Optional: Flower basic auth (user:pass)
-            FLOWER_BASIC_AUTH=${{ secrets.FLOWER_BASIC_AUTH }}
+          # Optional: Flower basic auth (user:pass)
+          sudo bash -c 'printf "%s=%s\n" FLOWER_BASIC_AUTH "$FLOWER_BASIC_AUTH" >> /opt/nft_portal/.env'
 
-            # Let's Encrypt
-            LE_EMAIL=${{ secrets.LE_EMAIL }}
-            EOF
-            sudo chmod 600 /opt/nft_portal/.env
+          # Let's Encrypt
+          sudo bash -c 'printf "%s=%s\n" LE_EMAIL "$LE_EMAIL" >> /opt/nft_portal/.env'
+          sudo chmod 600 /opt/nft_portal/.env
 
-            # Preflight: ensure SECRET_KEY is set or fail fast with guidance
-            SECRET_KEY_VAL=$(sudo sed -n 's/^SECRET_KEY=//p' /opt/nft_portal/.env)
-            if [ -z "$SECRET_KEY_VAL" ]; then
-              echo "ERROR: SECRET_KEY is not set in /opt/nft_portal/.env."
-              echo "Generate one (run on EC2) and add to /opt/nft_portal/.env:"
-              echo "  python3 - <<'PY'\nimport secrets, string\nprint('SECRET_KEY=' + ''.join(secrets.choice(string.ascii_letters+string.digits+string.punctuation) for _ in range(64)))\nPY"
-              echo "Then rerun this workflow."
-              exit 1
-            fi
+          # Preflight: ensure SECRET_KEY is set or fail fast with guidance
+          SECRET_KEY_VAL=$(sudo sed -n 's/^SECRET_KEY=//p' /opt/nft_portal/.env)
+          if [ -z "$SECRET_KEY_VAL" ]; then
+            echo "ERROR: SECRET_KEY is not set in /opt/nft_portal/.env."
+            exit 1
+          fi
 
-            # Optional: reconcile Postgres role/db using values from .env
-            DB_NAME=$(sudo sed -n 's/^POSTGRES_DB=//p' /opt/nft_portal/.env)
-            DB_USER=$(sudo sed -n 's/^POSTGRES_USER=//p' /opt/nft_portal/.env)
-            DB_PASS=$(sudo sed -n 's/^POSTGRES_PASSWORD=//p' /opt/nft_portal/.env)
-            if [ -n "$DB_NAME" ] && [ -n "$DB_USER" ] && [ -n "$DB_PASS" ]; then
-              echo "[DEPLOY] Ensuring Postgres role and database exist/match credentials"
-              # Use the postgres superuser inside the container; local socket auth typically allows this
-              set +e
-              sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
-                docker compose -f docker/docker-compose.prod.yml exec -T -u postgres db \
-                psql -U postgres -v ON_ERROR_STOP=1 -c \
-                "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='${DB_USER}') THEN CREATE ROLE ${DB_USER} LOGIN PASSWORD $$${DB_PASS}$$; ELSE ALTER ROLE ${DB_USER} WITH LOGIN PASSWORD $$${DB_PASS}$$; END IF; END $$;" || true
-              sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
-                docker compose -f docker/docker-compose.prod.yml exec -T -u postgres db \
-                psql -U postgres -v ON_ERROR_STOP=1 -c \
-                "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_database WHERE datname='${DB_NAME}') THEN CREATE DATABASE ${DB_NAME} OWNER ${DB_USER}; END IF; END $$;" || true
-              sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
-                docker compose -f docker/docker-compose.prod.yml exec -T -u postgres db \
-                psql -U postgres -v ON_ERROR_STOP=1 -d "${DB_NAME}" -c \
-                "GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};" || true
-              set -e
-            else
-              echo "[DEPLOY] Skipping Postgres reconcile (POSTGRES_DB/USER/PASSWORD not fully set)."
-            fi
-
-            cd /opt/nft_portal
-            # Login to ECR using password from runner (no awscli required on EC2)
-            echo "${ECR_PASSWORD}" | sudo docker login --username AWS --password-stdin "${ECR_REGISTRY}"
-
-            # Pull and start updated services (don't fail the script if health checks are not green yet)
+          # Optional: reconcile Postgres role/db using values from .env
+          DB_NAME=$(sudo sed -n 's/^POSTGRES_DB=//p' /opt/nft_portal/.env)
+          DB_USER=$(sudo sed -n 's/^POSTGRES_USER=//p' /opt/nft_portal/.env)
+          DB_PASS=$(sudo sed -n 's/^POSTGRES_PASSWORD=//p' /opt/nft_portal/.env)
+          if [ -n "$DB_NAME" ] && [ -n "$DB_USER" ] && [ -n "$DB_PASS" ]; then
+            echo "[DEPLOY] Ensuring Postgres role and database exist/match credentials"
             set +e
             sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
-              docker compose -f docker/docker-compose.prod.yml pull || true
+              docker compose -f docker/docker-compose.prod.yml exec -T -u postgres db \
+              psql -U postgres -v ON_ERROR_STOP=1 -c \
+              "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='${DB_USER}') THEN CREATE ROLE ${DB_USER} LOGIN PASSWORD $$${DB_PASS}$$; ELSE ALTER ROLE ${DB_USER} WITH LOGIN PASSWORD $$${DB_PASS}$$; END IF; END $$;" || true
             sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
-              docker compose -f docker/docker-compose.prod.yml up -d || true
-            echo "[DEPLOY] docker compose up -d attempted (non-fatal)"
-            # Quick diagnostics to aid troubleshooting without failing the job
-            echo "[DEPLOY][DIAG] docker ps"
-            sudo docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'
-            echo "[DEPLOY][DIAG] compose ps"
+              docker compose -f docker/docker-compose.prod.yml exec -T -u postgres db \
+              psql -U postgres -v ON_ERROR_STOP=1 -c \
+              "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_database WHERE datname='${DB_NAME}') THEN CREATE DATABASE ${DB_NAME} OWNER ${DB_USER}; END IF; END $$;" || true
             sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
-              docker compose -f docker/docker-compose.prod.yml ps
-            echo "[DEPLOY][DIAG] compose ps -a"
+              docker compose -f docker/docker-compose.prod.yml exec -T -u postgres db \
+              psql -U postgres -v ON_ERROR_STOP=1 -d "${DB_NAME}" -c \
+              "GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};" || true
+            set -e
+          else
+            echo "[DEPLOY] Skipping Postgres reconcile (POSTGRES_DB/USER/PASSWORD not fully set)."
+          fi
+
+          cd /opt/nft_portal
+          # Login to ECR using password from runner (no awscli required on EC2)
+          echo "${ECR_PASSWORD}" | sudo docker login --username AWS --password-stdin "${ECR_REGISTRY}"
+
+          # Pull and start updated services (don't fail the script if health checks are not green yet)
+          set +e
+          sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+            docker compose -f docker/docker-compose.prod.yml pull || true
+          sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+            docker compose -f docker/docker-compose.prod.yml up -d || true
+          echo "[DEPLOY] docker compose up -d attempted (non-fatal)"
+          # Quick diagnostics to aid troubleshooting without failing the job
+          echo "[DEPLOY][DIAG] docker ps"
+          sudo docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'
+          echo "[DEPLOY][DIAG] compose ps"
+          sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+            docker compose -f docker/docker-compose.prod.yml ps
+          echo "[DEPLOY][DIAG] compose ps -a"
+          sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+            docker compose -f docker/docker-compose.prod.yml ps -a
+          echo "[DEPLOY][DIAG] db last logs"
+          sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+            docker compose -f docker/docker-compose.prod.yml logs --no-color --tail=120 db || true
+          echo "[DEPLOY][DIAG] web/nginx/frontend last logs"
+          sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+            docker compose -f docker/docker-compose.prod.yml logs --no-color --tail=150 web nginx frontend || true
+          echo "[DEPLOY][DIAG] web inspect health"
+          sudo docker inspect -f '{{json .State.Health}}' docker-web-1 || true
+          echo "[DEPLOY][DIAG] nginx html contents"
+          sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+            docker compose -f docker/docker-compose.prod.yml exec -T nginx sh -lc 'ls -la /usr/share/nginx/html || true'
+          echo "[DEPLOY][DIAG] frontend build in image and volume"
+          sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+            docker compose -f docker/docker-compose.prod.yml exec -T frontend sh -lc 'echo "+ /dist:"; ls -la /dist; echo "+ /app/build:"; ls -la /app/build 2>/dev/null || true'
+          # Obtain/renew Let's Encrypt certificate (requires LE_EMAIL in /opt/nft_portal/.env)
+          # Use sed to extract the value safely; avoids non-zero grep exit under 'set -e' when not present
+          LE_FILE_EMAIL=$(sudo sed -n 's/^LE_EMAIL=//p' /opt/nft_portal/.env)
+          if [ -z "$LE_FILE_EMAIL" ]; then
+            echo "WARNING: LE_EMAIL not set in /opt/nft_portal/.env. Skipping certificate issuance."
+          else
+            echo "[DEPLOY] Starting certbot issuance via webroot"
             sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
-              docker compose -f docker/docker-compose.prod.yml ps -a
-            echo "[DEPLOY][DIAG] db last logs"
-            sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
-              docker compose -f docker/docker-compose.prod.yml logs --no-color --tail=120 db || true
-            echo "[DEPLOY][DIAG] web/nginx/frontend last logs"
-            sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
-              docker compose -f docker/docker-compose.prod.yml logs --no-color --tail=150 web nginx frontend || true
-            echo "[DEPLOY][DIAG] web inspect health"
-            sudo docker inspect -f '{{json .State.Health}}' docker-web-1 || true
-            echo "[DEPLOY][DIAG] nginx html contents"
-            sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
-              docker compose -f docker/docker-compose.prod.yml exec -T nginx sh -lc 'ls -la /usr/share/nginx/html || true'
-            echo "[DEPLOY][DIAG] frontend build in image and volume"
-            sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
-              docker compose -f docker/docker-compose.prod.yml exec -T frontend sh -lc 'echo "+ /dist:"; ls -la /dist; echo "+ /app/build:"; ls -la /app/build 2>/dev/null || true'
-            # Obtain/renew Let's Encrypt certificate (requires LE_EMAIL in /opt/nft_portal/.env)
-            # Use sed to extract the value safely; avoids non-zero grep exit under 'set -e' when not present
-            LE_EMAIL=$(sudo sed -n 's/^LE_EMAIL=//p' /opt/nft_portal/.env)
-            if [ -z "$LE_EMAIL" ]; then
-              echo "WARNING: LE_EMAIL not set in /opt/nft_portal/.env. Skipping certificate issuance."
+              docker compose -f docker/docker-compose.prod.yml run --rm certbot \
+              certbot certonly --non-interactive --agree-tos --no-eff-email \
+                --email "$LE_FILE_EMAIL" --webroot -w /var/www/certbot \
+                -d nftmarketplace.com.br -d www.nftmarketplace.com.br -d api.nftmarketplace.com.br || true
+            if sudo test -f /var/lib/docker/volumes/docker_letsencrypt/_data/live/nftmarketplace.com.br/fullchain.pem; then
+              sudo cp -f /opt/nft_portal/docker/nginx/nginx.ssl.conf /opt/nft_portal/docker/nginx/nginx.conf
+              sudo docker compose -f docker/docker-compose.prod.yml exec -T nginx nginx -s reload || \
+                sudo docker compose -f docker/docker-compose.prod.yml restart nginx || true
+              echo "[DEPLOY] Nginx reloaded with SSL config"
             else
-              echo "[DEPLOY] Starting certbot issuance via webroot"
-              # Ensure nginx is serving ACME webroot on 80 first (already running with non-SSL config)
-              sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
-                docker compose -f docker/docker-compose.prod.yml run --rm certbot \
-                certbot certonly --non-interactive --agree-tos --no-eff-email \
-                  --email "$LE_EMAIL" --webroot -w /var/www/certbot \
-                  -d nftmarketplace.com.br -d www.nftmarketplace.com.br -d api.nftmarketplace.com.br || true
-              # If cert exists, switch nginx to SSL config and reload
-              if sudo test -f /var/lib/docker/volumes/docker_letsencrypt/_data/live/nftmarketplace.com.br/fullchain.pem; then
-                sudo cp -f /opt/nft_portal/docker/nginx/nginx.ssl.conf /opt/nft_portal/docker/nginx/nginx.conf
-                sudo docker compose -f docker/docker-compose.prod.yml exec -T nginx nginx -s reload || \
-                  sudo docker compose -f docker/docker-compose.prod.yml restart nginx || true
-                echo "[DEPLOY] Nginx reloaded with SSL config"
-              else
-                echo "WARNING: Certificate not found. Keeping HTTP-only config."
-              fi
+              echo "WARNING: Certificate not found. Keeping HTTP-only config."
             fi
-            # Optional cleanup
-            sudo docker image prune -f || true
-            echo "[DEPLOY] finished"
-            exit 0
+          fi
+          sudo docker image prune -f || true
+          echo "[DEPLOY] finished"
+          exit 0
+REMOTE
