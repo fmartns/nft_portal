@@ -175,3 +175,5 @@ jobs:
             fi
             # Optional cleanup
             sudo docker image prune -f
+            echo "Deploy finished."
+            exit 0
