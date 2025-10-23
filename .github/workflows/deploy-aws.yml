@@ -147,22 +147,27 @@ jobs:
             # Login to ECR using password from runner (no awscli required on EC2)
             echo "${ECR_PASSWORD}" | sudo docker login --username AWS --password-stdin "${ECR_REGISTRY}"
 
-            # Pull and start updated services
-            sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
-              docker compose -f docker/docker-compose.prod.yml pull
-            sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
-              docker compose -f docker/docker-compose.prod.yml up -d
-            echo "[DEPLOY] docker compose up -d completed"
-            # Quick diagnostics to aid troubleshooting without failing the job
+            # Pull and start updated services (don't fail the script if health checks are not green yet)
             set +e
+            sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+              docker compose -f docker/docker-compose.prod.yml pull || true
+            sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+              docker compose -f docker/docker-compose.prod.yml up -d || true
+            echo "[DEPLOY] docker compose up -d attempted (non-fatal)"
+            # Quick diagnostics to aid troubleshooting without failing the job
             echo "[DEPLOY][DIAG] docker ps"
             sudo docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'
             echo "[DEPLOY][DIAG] compose ps"
             sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
               docker compose -f docker/docker-compose.prod.yml ps
+            echo "[DEPLOY][DIAG] compose ps -a"
+            sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+              docker compose -f docker/docker-compose.prod.yml ps -a
             echo "[DEPLOY][DIAG] web/nginx/frontend last logs"
             sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
               docker compose -f docker/docker-compose.prod.yml logs --no-color --tail=150 web nginx frontend || true
+            echo "[DEPLOY][DIAG] web inspect health"
+            sudo docker inspect -f '{{json .State.Health}}' docker-web-1 || true
             echo "[DEPLOY][DIAG] nginx html contents"
             sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
               docker compose -f docker/docker-compose.prod.yml exec -T nginx sh -lc 'ls -la /usr/share/nginx/html || true'
@@ -176,7 +181,6 @@ jobs:
               echo "WARNING: LE_EMAIL not set in /opt/nft_portal/.env. Skipping certificate issuance."
             else
               echo "[DEPLOY] Starting certbot issuance via webroot"
-              set +e
               # Ensure nginx is serving ACME webroot on 80 first (already running with non-SSL config)
               sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
                 docker compose -f docker/docker-compose.prod.yml run --rm certbot \
@@ -186,12 +190,12 @@ jobs:
               # If cert exists, switch nginx to SSL config and reload
               if sudo test -f /var/lib/docker/volumes/docker_letsencrypt/_data/live/nftmarketplace.com.br/fullchain.pem; then
                 sudo cp -f /opt/nft_portal/docker/nginx/nginx.ssl.conf /opt/nft_portal/docker/nginx/nginx.conf
-                sudo docker compose -f docker/docker-compose.prod.yml exec -T nginx nginx -s reload || sudo docker compose -f docker/docker-compose.prod.yml restart nginx || true
+                sudo docker compose -f docker/docker-compose.prod.yml exec -T nginx nginx -s reload || \
+                  sudo docker compose -f docker/docker-compose.prod.yml restart nginx || true
                 echo "[DEPLOY] Nginx reloaded with SSL config"
               else
                 echo "WARNING: Certificate not found. Keeping HTTP-only config."
               fi
-              set -e
             fi
             # Optional cleanup
             sudo docker image prune -f || true
