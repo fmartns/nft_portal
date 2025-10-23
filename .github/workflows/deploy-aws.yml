@@ -22,6 +22,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Debug - Check secrets availability
+        run: |
+          echo "=== Checking secrets availability ==="
+          echo "AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID != '' && 'SET' || 'NOT SET' }}"
+          echo "AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY != '' && 'SET' || 'NOT SET' }}"
+          echo "EC2_HOST: ${{ secrets.EC2_HOST != '' && 'SET' || 'NOT SET' }}"
+          echo "EC2_USER: ${{ secrets.EC2_USER != '' && 'SET' || 'NOT SET' }}"
+          echo "EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY != '' && 'SET' || 'NOT SET' }}"
+          echo "SECRET_KEY: ${{ secrets.SECRET_KEY != '' && 'SET' || 'NOT SET' }}"
+          echo "POSTGRES_DB: ${{ secrets.POSTGRES_DB != '' && 'SET' || 'NOT SET' }}"
+          echo "POSTGRES_USER: ${{ secrets.POSTGRES_USER != '' && 'SET' || 'NOT SET' }}"
+          echo "POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD != '' && 'SET' || 'NOT SET' }}"
+          echo "FLOWER_BASIC_AUTH: ${{ secrets.FLOWER_BASIC_AUTH != '' && 'SET' || 'NOT SET' }}"
+          echo "LE_EMAIL: ${{ secrets.LE_EMAIL != '' && 'SET' || 'NOT SET' }}"
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -29,16 +44,25 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Debug - Test AWS connection
+        run: |
+          echo "=== Testing AWS connection ==="
+          aws sts get-caller-identity
+          echo "✅ AWS connection successful"
+
       - name: Ensure ECR repositories exist
         shell: bash
         run: |
           set -e
+          echo "=== Creating ECR repositories ==="
           for repo in "${ECR_REPOSITORY}-web" "${ECR_REPOSITORY}-frontend"; do
+            echo "Checking repository: $repo"
             if ! aws ecr describe-repositories --repository-names "$repo" >/dev/null 2>&1; then
+              echo "Creating ECR repo: $repo"
               aws ecr create-repository --repository-name "$repo" >/dev/null
-              echo "Created ECR repo: $repo"
+              echo "✅ Created ECR repo: $repo"
             else
-              echo "ECR repo exists: $repo"
+              echo "✅ ECR repo exists: $repo"
             fi
           done
 
@@ -68,6 +92,18 @@ jobs:
             timeout 5 bash -c "</dev/tcp/$TARGET/22" || { echo "SSH port 22 not reachable"; exit 1; }
           fi
           echo "SSH port reachable"
+
+      - name: Debug - Check Docker files
+        run: |
+          echo "=== Checking Docker files ==="
+          echo "Backend Dockerfile:"
+          ls -la docker/Dockerfile
+          echo "Frontend Dockerfile:"
+          ls -la frontend/Dockerfile
+          echo "Docker-compose prod:"
+          ls -la docker/docker-compose.prod.yml
+          echo "Nginx configs:"
+          ls -la docker/nginx/
 
       - name: Build and push backend image
         uses: docker/build-push-action@v6
