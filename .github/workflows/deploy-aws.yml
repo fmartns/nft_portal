@@ -129,6 +129,11 @@ jobs:
             else
               echo "ERROR: nginx.conf not found at $UPLOAD_DIR/docker/nginx/nginx.conf" >&2
             fi
+            if [ -f "$UPLOAD_DIR/docker/nginx/nginx.ssl.conf" ]; then
+              sudo cp -f "$UPLOAD_DIR/docker/nginx/nginx.ssl.conf" /opt/nft_portal/docker/nginx/nginx.ssl.conf
+            else
+              echo "WARNING: nginx.ssl.conf not found at $UPLOAD_DIR/docker/nginx/nginx.ssl.conf" >&2
+            fi
             # Cleanup upload dir
             rm -rf "$UPLOAD_DIR"
 
@@ -152,6 +157,7 @@ jobs:
             if [ -z "$LE_EMAIL" ]; then
               echo "WARNING: LE_EMAIL not set in /opt/nft_portal/.env. Skipping certificate issuance."
             else
+              set +e
               # Ensure nginx is serving ACME webroot on 80 first (already running with non-SSL config)
               sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
                 docker compose -f docker/docker-compose.prod.yml run --rm certbot \
@@ -161,10 +167,11 @@ jobs:
               # If cert exists, switch nginx to SSL config and reload
               if sudo test -f /var/lib/docker/volumes/docker_letsencrypt/_data/live/nftmarketplace.com.br/fullchain.pem; then
                 sudo cp -f /opt/nft_portal/docker/nginx/nginx.ssl.conf /opt/nft_portal/docker/nginx/nginx.conf
-                sudo docker compose -f docker/docker-compose.prod.yml exec -T nginx nginx -s reload || sudo docker compose -f docker/docker-compose.prod.yml restart nginx
+                sudo docker compose -f docker/docker-compose.prod.yml exec -T nginx nginx -s reload || sudo docker compose -f docker/docker-compose.prod.yml restart nginx || true
               else
                 echo "WARNING: Certificate not found. Keeping HTTP-only config."
               fi
+              set -e
             fi
             # Optional cleanup
             sudo docker image prune -f
