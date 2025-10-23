@@ -153,6 +153,31 @@ jobs:
               exit 1
             fi
 
+            # Optional: reconcile Postgres role/db using values from .env
+            DB_NAME=$(sed -n 's/^POSTGRES_DB=//p' /opt/nft_portal/.env)
+            DB_USER=$(sed -n 's/^POSTGRES_USER=//p' /opt/nft_portal/.env)
+            DB_PASS=$(sed -n 's/^POSTGRES_PASSWORD=//p' /opt/nft_portal/.env)
+            if [ -n "$DB_NAME" ] && [ -n "$DB_USER" ] && [ -n "$DB_PASS" ]; then
+              echo "[DEPLOY] Ensuring Postgres role and database exist/match credentials"
+              # Use the postgres superuser inside the container; local socket auth typically allows this
+              set +e
+              sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+                docker compose -f docker/docker-compose.prod.yml exec -T -u postgres db \
+                psql -U postgres -v ON_ERROR_STOP=1 -c \
+                "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='${DB_USER}') THEN CREATE ROLE ${DB_USER} LOGIN PASSWORD $$${DB_PASS}$$; ELSE ALTER ROLE ${DB_USER} WITH LOGIN PASSWORD $$${DB_PASS}$$; END IF; END $$;" || true
+              sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+                docker compose -f docker/docker-compose.prod.yml exec -T -u postgres db \
+                psql -U postgres -v ON_ERROR_STOP=1 -c \
+                "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_database WHERE datname='${DB_NAME}') THEN CREATE DATABASE ${DB_NAME} OWNER ${DB_USER}; END IF; END $$;" || true
+              sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+                docker compose -f docker/docker-compose.prod.yml exec -T -u postgres db \
+                psql -U postgres -v ON_ERROR_STOP=1 -d "${DB_NAME}" -c \
+                "GRANT ALL PRIVILEGES ON DATABASE ${DB_NAME} TO ${DB_USER};" || true
+              set -e
+            else
+              echo "[DEPLOY] Skipping Postgres reconcile (POSTGRES_DB/USER/PASSWORD not fully set)."
+            fi
+
             cd /opt/nft_portal
             # Login to ECR using password from runner (no awscli required on EC2)
             echo "${ECR_PASSWORD}" | sudo docker login --username AWS --password-stdin "${ECR_REGISTRY}"
@@ -173,6 +198,9 @@ jobs:
             echo "[DEPLOY][DIAG] compose ps -a"
             sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
               docker compose -f docker/docker-compose.prod.yml ps -a
+            echo "[DEPLOY][DIAG] db last logs"
+            sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+              docker compose -f docker/docker-compose.prod.yml logs --no-color --tail=120 db || true
             echo "[DEPLOY][DIAG] web/nginx/frontend last logs"
             sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
               docker compose -f docker/docker-compose.prod.yml logs --no-color --tail=150 web nginx frontend || true
