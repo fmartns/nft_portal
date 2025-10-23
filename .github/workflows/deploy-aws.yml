@@ -109,6 +109,8 @@ jobs:
           script_stop: true
           script: |
             set -e
+            # Silence benign compose/drone warnings about unset variable
+            export DRONE_SSH_PREV_COMMAND_EXIT_CODE=0
             # Inject environment from runner
             ECR_REGISTRY="${{ steps.login-ecr.outputs.registry }}"
             ECR_REPOSITORY="${{ env.ECR_REPOSITORY }}"
