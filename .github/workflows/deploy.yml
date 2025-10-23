@@ -123,16 +123,19 @@ jobs:
           LE_EMAIL=$LE_EMAIL
           ENVEOF
           
-          # Deploy strategy: preserve database data
+          # Clean deployment strategy
           cd /opt/nft_portal
           
-          # Stop only application containers (keep db/redis running)
-          sudo docker stop docker-web-1 docker-frontend-1 docker-nginx-1 docker-celery_worker-1 docker-celery_beat-1 docker-flower-1 docker-certbot-1 || true
+          # Stop all containers gracefully
+          sudo docker compose -f docker/docker-compose.prod.yml down || true
           
-          # Remove only application containers (preserve db/redis)
-          sudo docker rm docker-web-1 docker-frontend-1 docker-nginx-1 docker-celery_worker-1 docker-celery_beat-1 docker-flower-1 docker-certbot-1 || true
+          # Remove all containers with conflicting names (force remove)
+          sudo docker container prune -f
           
-          # Start all containers (db/redis will continue with existing data)
+          # Remove orphaned containers
+          sudo docker container ls -a --filter "name=docker-" --format "{{.Names}}" | xargs -r sudo docker rm -f || true
+          
+          # Start fresh deployment
           sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
             docker compose -f docker/docker-compose.prod.yml up -d
           
