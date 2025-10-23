@@ -84,22 +84,14 @@ jobs:
             org.opencontainers.image.source=${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
 
-      - name: Copy compose and nginx config to EC2
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          # Comma-separated patterns to avoid empty tar issue
-          source: "docker/docker-compose.prod.yml,docker/nginx/nginx.conf,docker/nginx/nginx.ssl.conf"
-          # Upload to a user-writable absolute location; we'll move with sudo in the next step
-          target: /home/${{ secrets.EC2_USER }}/.nft_portal_upload
-          overwrite: true
-          rm: true
-          strip_components: 0
-          debug: true
-          timeout: 2m
-          command_timeout: 2m
+      - name: Encode deployment files
+        id: encode
+        shell: bash
+        run: |
+          set -e
+          echo "compose_b64=$(base64 -w0 docker/docker-compose.prod.yml)" >> $GITHUB_OUTPUT
+          echo "nginx_b64=$(base64 -w0 docker/nginx/nginx.conf)" >> $GITHUB_OUTPUT
+          echo "nginx_ssl_b64=$(base64 -w0 docker/nginx/nginx.ssl.conf)" >> $GITHUB_OUTPUT
 
       - name: Get ECR login password (runner)
         id: ecrpass
@@ -123,27 +115,12 @@ jobs:
             TAG="${{ steps.vars.outputs.sha }}"
             AWS_REGION="${{ env.AWS_REGION }}"
             ECR_PASSWORD="${{ steps.ecrpass.outputs.password }}"
-            UPLOAD_DIR="$HOME/.nft_portal_upload"
             # Prepare target directories
             sudo mkdir -p /opt/nft_portal/docker/nginx
-            # Copy uploaded files into /opt with sudo
-            if [ -f "$UPLOAD_DIR/docker/docker-compose.prod.yml" ]; then
-              sudo cp -f "$UPLOAD_DIR/docker/docker-compose.prod.yml" /opt/nft_portal/docker/docker-compose.prod.yml
-            else
-              echo "ERROR: compose file not found at $UPLOAD_DIR/docker/docker-compose.prod.yml" >&2
-            fi
-            if [ -f "$UPLOAD_DIR/docker/nginx/nginx.conf" ]; then
-              sudo cp -f "$UPLOAD_DIR/docker/nginx/nginx.conf" /opt/nft_portal/docker/nginx/nginx.conf
-            else
-              echo "ERROR: nginx.conf not found at $UPLOAD_DIR/docker/nginx/nginx.conf" >&2
-            fi
-            if [ -f "$UPLOAD_DIR/docker/nginx/nginx.ssl.conf" ]; then
-              sudo cp -f "$UPLOAD_DIR/docker/nginx/nginx.ssl.conf" /opt/nft_portal/docker/nginx/nginx.ssl.conf
-            else
-              echo "WARNING: nginx.ssl.conf not found at $UPLOAD_DIR/docker/nginx/nginx.ssl.conf" >&2
-            fi
-            # Cleanup upload dir
-            rm -rf "$UPLOAD_DIR"
+            # Reconstruct deployment files from base64-encoded outputs
+            echo "${{ steps.encode.outputs.compose_b64 }}" | base64 -d | sudo tee /opt/nft_portal/docker/docker-compose.prod.yml >/dev/null
+            echo "${{ steps.encode.outputs.nginx_b64 }}" | base64 -d | sudo tee /opt/nft_portal/docker/nginx/nginx.conf >/dev/null
+            echo "${{ steps.encode.outputs.nginx_ssl_b64 }}" | base64 -d | sudo tee /opt/nft_portal/docker/nginx/nginx.ssl.conf >/dev/null
 
             # (Re)generate /opt/nft_portal/.env from GitHub Secrets to avoid drift on server
             echo "[DEPLOY] Writing /opt/nft_portal/.env from GitHub Secrets"
