@@ -122,7 +122,33 @@ jobs:
           sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
             docker compose -f docker/docker-compose.prod.yml up -d
           
-          # Wait and check
+          # Wait for containers to start
           sleep 30
+          
+          # Configure SSL for main domain
+          echo "Configurando SSL para nftmarketplace.com.br..."
+          sudo docker exec docker-certbot-1 certbot certonly \
+            --webroot \
+            --webroot-path=/var/www/certbot \
+            --email $LE_EMAIL \
+            --agree-tos \
+            --no-eff-email \
+            -d nftmarketplace.com.br \
+            -d www.nftmarketplace.com.br || echo "SSL principal já configurado"
+          
+          # Configure SSL for API domain
+          echo "Configurando SSL para api.nftmarketplace.com.br..."
+          sudo docker exec docker-certbot-1 certbot certonly \
+            --webroot \
+            --webroot-path=/var/www/certbot \
+            --email $LE_EMAIL \
+            --agree-tos \
+            --no-eff-email \
+            -d api.nftmarketplace.com.br || echo "SSL API já configurado"
+          
+          # Reload nginx
+          sudo docker exec docker-nginx-1 nginx -s reload || true
+          
+          # Final status
           sudo docker ps
           EOF
