@@ -95,8 +95,11 @@ jobs:
           sudo docker pull "$ECR_REGISTRY/$ECR_REPOSITORY-web:$TAG"
           sudo docker pull "$ECR_REGISTRY/$ECR_REPOSITORY-frontend:$TAG"
           
-          # Stop old containers
-          sudo docker compose -f /opt/nft_portal/docker/docker-compose.prod.yml down || true
+          # Stop and remove old containers
+          sudo docker compose -f /opt/nft_portal/docker/docker-compose.prod.yml down --remove-orphans || true
+          
+          # Remove any remaining containers with conflicting names
+          sudo docker rm -f docker-certbot-1 docker-redis-1 docker-db-1 docker-web-1 docker-frontend-1 docker-nginx-1 docker-celery_worker-1 docker-celery_beat-1 docker-flower-1 || true
           
           # Update environment
           sudo tee /opt/nft_portal/.env >/dev/null << ENVEOF
