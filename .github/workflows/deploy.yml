@@ -128,6 +128,17 @@ jobs:
           # Wait for containers to start
           sleep 30
           
+          # Stop any stuck certbot processes
+          sudo docker stop docker-certbot-1 || true
+          sudo docker rm docker-certbot-1 || true
+          
+          # Recreate certbot container
+          sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+            docker compose -f docker/docker-compose.prod.yml up -d certbot
+          
+          # Wait for certbot to be ready
+          sleep 10
+          
           # Configure SSL for main domain
           echo "Configurando SSL para nftmarketplace.com.br..."
           sudo docker exec docker-certbot-1 certbot certonly \
@@ -136,6 +147,7 @@ jobs:
             --email $LE_EMAIL \
             --agree-tos \
             --no-eff-email \
+            --non-interactive \
             -d nftmarketplace.com.br \
             -d www.nftmarketplace.com.br || echo "SSL principal já configurado"
           
@@ -147,10 +159,20 @@ jobs:
             --email $LE_EMAIL \
             --agree-tos \
             --no-eff-email \
+            --non-interactive \
             -d api.nftmarketplace.com.br || echo "SSL API já configurado"
           
-          # Reload nginx
-          sudo docker exec docker-nginx-1 nginx -s reload || true
+          # Verify certificates exist
+          sudo docker exec docker-certbot-1 ls -la /etc/letsencrypt/live/ || echo "Certificados não encontrados"
+          
+          # Restart nginx to load SSL configuration
+          sudo docker restart docker-nginx-1
+          
+          # Wait for nginx to restart
+          sleep 10
+          
+          # Verify nginx is listening on port 443
+          sudo docker exec docker-nginx-1 netstat -tlnp | grep 443 || echo "Nginx não está escutando na 443"
           
           # Final status
           sudo docker ps
