@@ -143,6 +143,16 @@ jobs:
               exit 1
             fi
 
+            # Preflight: ensure SECRET_KEY is set or fail fast with guidance
+            SECRET_KEY_VAL=$(sed -n 's/^SECRET_KEY=//p' /opt/nft_portal/.env)
+            if [ -z "$SECRET_KEY_VAL" ]; then
+              echo "ERROR: SECRET_KEY is not set in /opt/nft_portal/.env."
+              echo "Generate one (run on EC2) and add to /opt/nft_portal/.env:"
+              echo "  python3 - <<'PY'\nimport secrets, string\nprint('SECRET_KEY=' + ''.join(secrets.choice(string.ascii_letters+string.digits+string.punctuation) for _ in range(64)))\nPY"
+              echo "Then rerun this workflow."
+              exit 1
+            fi
+
             cd /opt/nft_portal
             # Login to ECR using password from runner (no awscli required on EC2)
             echo "${ECR_PASSWORD}" | sudo docker login --username AWS --password-stdin "${ECR_REGISTRY}"
