@@ -63,10 +63,12 @@ class NFTItemAdmin(admin.ModelAdmin):
 
     def import_json_view(self, request):
         context = {**self.admin_site.each_context(request)}
-        context.update({
-            "opts": self.model._meta,
-            "title": "Importar NFTs via JSON",
-        })
+        context.update(
+            {
+                "opts": self.model._meta,
+                "title": "Importar NFTs via JSON",
+            }
+        )
 
         if request.method == "POST":
             raw = request.POST.get("payload", "").strip()
@@ -79,14 +81,21 @@ class NFTItemAdmin(admin.ModelAdmin):
 
             # Aceita {"nfts": [...]} ou lista de objetos, ou objeto único
             entries = []
-            if isinstance(data, dict) and "nfts" in data and isinstance(data["nfts"], list):
+            if (
+                isinstance(data, dict)
+                and "nfts" in data
+                and isinstance(data["nfts"], list)
+            ):
                 entries = data["nfts"]
             elif isinstance(data, list):
                 entries = data
             elif isinstance(data, dict):
                 entries = [data]
             else:
-                messages.error(request, "Estrutura JSON não reconhecida. Informe um objeto, lista ou {\"nfts\": [...]}.")
+                messages.error(
+                    request,
+                    'Estrutura JSON não reconhecida. Informe um objeto, lista ou {"nfts": [...]}.',
+                )
                 return render(request, "admin/nft/nftitem/import_json.html", context)
 
             created = 0
@@ -100,7 +109,11 @@ class NFTItemAdmin(admin.ModelAdmin):
                     try:
                         if not isinstance(entry, dict):
                             raise ValueError("Entrada inválida; esperado objeto")
-                        fields = entry.get("fields") if isinstance(entry.get("fields"), dict) else entry
+                        fields = (
+                            entry.get("fields")
+                            if isinstance(entry.get("fields"), dict)
+                            else entry
+                        )
                         pk = entry.get("pk")
                         if not isinstance(fields, dict):
                             raise ValueError("Campo 'fields' ausente ou inválido")
@@ -136,7 +149,9 @@ class NFTItemAdmin(admin.ModelAdmin):
                                 pass
                         if fields.get("seven_day_sales_count") is not None:
                             try:
-                                defaults["seven_day_sales_count"] = int(fields.get("seven_day_sales_count"))
+                                defaults["seven_day_sales_count"] = int(
+                                    fields.get("seven_day_sales_count")
+                                )
                             except Exception:
                                 pass
 
@@ -160,16 +175,22 @@ class NFTItemAdmin(admin.ModelAdmin):
                         # Datetime
                         if fields.get("seven_day_updated_at"):
                             try:
-                                defaults["seven_day_updated_at"] = parse_datetime(fields.get("seven_day_updated_at"))
+                                defaults["seven_day_updated_at"] = parse_datetime(
+                                    fields.get("seven_day_updated_at")
+                                )
                             except Exception:
                                 pass
 
                         # ForeignKey: collection por id
                         if fields.get("collection"):
                             try:
-                                defaults["collection"] = NftCollection.objects.get(pk=fields.get("collection"))
+                                defaults["collection"] = NftCollection.objects.get(
+                                    pk=fields.get("collection")
+                                )
                             except NftCollection.DoesNotExist:
-                                raise ValueError(f"Coleção com id={fields.get('collection')} não existe")
+                                raise ValueError(
+                                    f"Coleção com id={fields.get('collection')} não existe"
+                                )
 
                         product_code = fields.get("product_code")
 
@@ -196,7 +217,12 @@ class NFTItemAdmin(admin.ModelAdmin):
                                 NFTItem.objects.create(**defaults)
                                 created += 1
                         else:
-                            if product_code and NFTItem.objects.filter(product_code=product_code).exists():
+                            if (
+                                product_code
+                                and NFTItem.objects.filter(
+                                    product_code=product_code
+                                ).exists()
+                            ):
                                 updated += 1  # existente (pulado)
                             elif pk and NFTItem.objects.filter(pk=pk).exists():
                                 updated += 1  # existente (pulado)
@@ -216,7 +242,10 @@ class NFTItemAdmin(admin.ModelAdmin):
             if updated:
                 messages.info(request, f"{updated} NFT(s) atualizado(s)/existentes")
             if errors:
-                messages.warning(request, f"{errors} item(ns) com erro; verifique o JSON e coleções referenciadas")
+                messages.warning(
+                    request,
+                    f"{errors} item(ns) com erro; verifique o JSON e coleções referenciadas",
+                )
 
             return redirect("admin:nft_nftitem_changelist")
 

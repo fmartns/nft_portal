@@ -84,10 +84,12 @@ class NftCollectionAdmin(admin.ModelAdmin):
 
     def import_json_view(self, request):
         context = {**self.admin_site.each_context(request)}
-        context.update({
-            "opts": self.model._meta,
-            "title": "Importar coleções via JSON",
-        })
+        context.update(
+            {
+                "opts": self.model._meta,
+                "title": "Importar coleções via JSON",
+            }
+        )
 
         if request.method == "POST":
             raw = request.POST.get("payload", "").strip()
@@ -96,19 +98,30 @@ class NftCollectionAdmin(admin.ModelAdmin):
                 data = json.loads(raw)
             except json.JSONDecodeError as e:
                 messages.error(request, f"JSON inválido: {e}")
-                return render(request, "admin/gallery/nftcollection/import_json.html", context)
+                return render(
+                    request, "admin/gallery/nftcollection/import_json.html", context
+                )
 
             # Aceita {"collections": [...]} ou um único objeto
             items = []
-            if isinstance(data, dict) and "collections" in data and isinstance(data["collections"], list):
+            if (
+                isinstance(data, dict)
+                and "collections" in data
+                and isinstance(data["collections"], list)
+            ):
                 items = data["collections"]
             elif isinstance(data, dict):
                 items = [data]
             elif isinstance(data, list):
                 items = data
             else:
-                messages.error(request, "Estrutura JSON não reconhecida. Informe um objeto, lista ou {\"collections\": [...]}.")
-                return render(request, "admin/gallery/nftcollection/import_json.html", context)
+                messages.error(
+                    request,
+                    'Estrutura JSON não reconhecida. Informe um objeto, lista ou {"collections": [...]}.',
+                )
+                return render(
+                    request, "admin/gallery/nftcollection/import_json.html", context
+                )
 
             created = 0
             updated = 0
@@ -121,7 +134,9 @@ class NftCollectionAdmin(admin.ModelAdmin):
                     try:
                         address = (obj.get("address") or "").strip()
                         if not address:
-                            raise ValueError("Campo 'address' é obrigatório em cada coleção")
+                            raise ValueError(
+                                "Campo 'address' é obrigatório em cada coleção"
+                            )
 
                         defaults = {}
                         # Map simple fields
@@ -144,7 +159,9 @@ class NftCollectionAdmin(admin.ModelAdmin):
 
                         # Images mapping with fallbacks
                         profile_image = obj.get("profile_image") or obj.get("icon_url")
-                        cover_image = obj.get("cover_image") or obj.get("collection_image_url")
+                        cover_image = obj.get("cover_image") or obj.get(
+                            "collection_image_url"
+                        )
                         if profile_image:
                             defaults["profile_image"] = profile_image
                         if cover_image:
@@ -161,7 +178,10 @@ class NftCollectionAdmin(admin.ModelAdmin):
                                 except Exception:
                                     pass
 
-                        for src, dst in [("floor_price", "floor_price"), ("total_volume", "total_volume")]:
+                        for src, dst in [
+                            ("floor_price", "floor_price"),
+                            ("total_volume", "total_volume"),
+                        ]:
                             if obj.get(src) is not None:
                                 try:
                                     defaults[dst] = Decimal(str(obj.get(src)))
@@ -183,9 +203,11 @@ class NftCollectionAdmin(admin.ModelAdmin):
                             if obj_qs.exists():
                                 updated += 1  # contado como 'existente (pulado)'
                             else:
-                                NftCollection.objects.create(address=address, **defaults)
+                                NftCollection.objects.create(
+                                    address=address, **defaults
+                                )
                                 created += 1
-                    except Exception as e:
+                    except Exception:
                         errors += 1
                         # continua importação
 
@@ -194,9 +216,13 @@ class NftCollectionAdmin(admin.ModelAdmin):
             if created:
                 messages.success(request, f"{created} coleção(ões) criada(s)")
             if updated:
-                messages.info(request, f"{updated} coleção(ões) atualizada(s)/existentes")
+                messages.info(
+                    request, f"{updated} coleção(ões) atualizada(s)/existentes"
+                )
             if errors:
-                messages.warning(request, f"{errors} item(ns) com erro; verifique o JSON")
+                messages.warning(
+                    request, f"{errors} item(ns) com erro; verifique o JSON"
+                )
 
             return redirect("admin:gallery_nftcollection_changelist")
 

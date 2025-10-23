@@ -1,6 +1,5 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
 from rest_framework.permissions import AllowAny
@@ -9,11 +8,7 @@ from .models import NftCollection
 from .serializers import NftCollectionSerializer
 from .docs import (
     collection_list_schema,
-    collection_create_schema,
     collection_detail_schema,
-    collection_update_schema,
-    collection_partial_update_schema,
-    collection_delete_schema,
     collection_stats_schema,
     collection_trending_schema,
 )
@@ -49,6 +44,7 @@ class CollectionListCreateAPIView(APIView):
         serializer = NftCollectionSerializer(qs, many=True)
         return Response(serializer.data)
 
+
 class CollectionDetailAPIView(APIView):
     """
     API para operações com uma coleção NFT específica.
@@ -66,6 +62,7 @@ class CollectionDetailAPIView(APIView):
         """Retorna os detalhes completos de uma coleção NFT."""
         obj = self.get_object(slug)
         return Response(NftCollectionSerializer(obj).data)
+
 
 class CollectionStatsAPIView(APIView):
     """
