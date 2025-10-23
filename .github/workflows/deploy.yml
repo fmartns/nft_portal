@@ -1,7 +1,6 @@
-name: Deploy to EC2 (Docker Pre-installed)
+name: Deploy NFT Portal
 
 on:
-  workflow_dispatch:
   push:
     branches: [ "main" ]
 
@@ -15,7 +14,6 @@ jobs:
     permissions:
       contents: read
       id-token: write
-      packages: read
 
     steps:
       - name: Checkout
@@ -33,21 +31,12 @@ jobs:
           for repo in "${ECR_REPOSITORY}-web" "${ECR_REPOSITORY}-frontend"; do
             if ! aws ecr describe-repositories --repository-names "$repo" >/dev/null 2>&1; then
               aws ecr create-repository --repository-name "$repo"
-              echo "Created $repo"
-            else
-              echo "$repo exists"
             fi
           done
 
       - name: Login to ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Set tags
-        id: vars
-        run: |
-          echo "sha=${GITHUB_SHA}" >> $GITHUB_OUTPUT
-          echo "registry=${{ steps.login-ecr.outputs.registry }}" >> $GITHUB_OUTPUT
 
       - name: Build and push backend
         uses: docker/build-push-action@v6
@@ -56,8 +45,8 @@ jobs:
           file: docker/Dockerfile
           push: true
           tags: |
-            ${{ steps.vars.outputs.registry }}/${{ env.ECR_REPOSITORY }}-web:${{ steps.vars.outputs.sha }}
-            ${{ steps.vars.outputs.registry }}/${{ env.ECR_REPOSITORY }}-web:latest
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-web:${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-web:latest
 
       - name: Build and push frontend
         uses: docker/build-push-action@v6
@@ -69,32 +58,17 @@ jobs:
           build-args: |
             VITE_API_BASE_URL=https://api.nftmarketplace.com.br
           tags: |
-            ${{ steps.vars.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:${{ steps.vars.outputs.sha }}
-            ${{ steps.vars.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:latest
-
-      - name: Encode files
-        id: encode
-        run: |
-          echo "compose_b64=$(base64 -w0 docker/docker-compose.prod.yml)" >> $GITHUB_OUTPUT
-          echo "nginx_b64=$(base64 -w0 docker/nginx/nginx.conf)" >> $GITHUB_OUTPUT
-          echo "nginx_ssl_b64=$(base64 -w0 docker/nginx/nginx.ssl.conf)" >> $GITHUB_OUTPUT
-
-      - name: Get ECR password
-        id: ecrpass
-        run: echo "password=$(aws ecr get-login-password --region $AWS_REGION)" >> $GITHUB_OUTPUT
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:latest
 
       - name: Deploy to EC2
         env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_HOST: 15.228.220.167
           EC2_USER: ${{ secrets.EC2_USER }}
           EC2_KEY: ${{ secrets.EC2_SSH_KEY }}
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
-          TAG: ${{ steps.vars.outputs.sha }}
-          ECR_PASSWORD: ${{ steps.ecrpass.outputs.password }}
-          COMPOSE_B64: ${{ steps.encode.outputs.compose_b64 }}
-          NGINX_B64: ${{ steps.encode.outputs.nginx_b64 }}
-          NGINX_SSL_B64: ${{ steps.encode.outputs.nginx_ssl_b64 }}
+          TAG: ${{ github.sha }}
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
           POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
@@ -102,33 +76,29 @@ jobs:
           FLOWER_BASIC_AUTH: ${{ secrets.FLOWER_BASIC_AUTH }}
           LE_EMAIL: ${{ secrets.LE_EMAIL }}
         run: |
+          # Get ECR password
+          ECR_PASSWORD=$(aws ecr get-login-password --region $AWS_REGION)
+          
+          # Setup SSH
           mkdir -p ~/.ssh
           echo "$EC2_KEY" > ~/.ssh/ec2_key
           chmod 600 ~/.ssh/ec2_key
           
-          ssh -i ~/.ssh/ec2_key -o StrictHostKeyChecking=no "$EC2_USER@$EC2_HOST" << 'EOF'
+          # Deploy
+          ssh -i ~/.ssh/ec2_key -o StrictHostKeyChecking=no "$EC2_USER@$EC2_HOST" << EOF
           set -e
           
-          # Check if Docker is installed
-          if ! command -v docker &> /dev/null; then
-            echo "ERROR: Docker is not installed on EC2 instance"
-            echo "Please run the setup script first:"
-            echo "curl -fsSL https://raw.githubusercontent.com/your-repo/main/scripts/setup-ec2.sh | bash"
-            exit 1
-          fi
+          # Login to ECR
+          echo "$ECR_PASSWORD" | sudo docker login --username AWS --password-stdin "$ECR_REGISTRY"
           
-          echo "Docker is installed, proceeding with deploy..."
+          # Pull latest images
+          sudo docker pull "$ECR_REGISTRY/$ECR_REPOSITORY-web:$TAG"
+          sudo docker pull "$ECR_REGISTRY/$ECR_REPOSITORY-frontend:$TAG"
           
-          # Prepare directories
-          sudo mkdir -p /opt/nft_portal/docker/nginx
+          # Stop old containers
+          sudo docker compose -f /opt/nft_portal/docker/docker-compose.prod.yml down || true
           
-          # Deploy files
-          echo "$COMPOSE_B64" | base64 -d | sudo tee /opt/nft_portal/docker/docker-compose.prod.yml >/dev/null
-          echo "$NGINX_B64" | base64 -d | sudo tee /opt/nft_portal/docker/nginx/nginx.conf >/dev/null
-          echo "$NGINX_SSL_B64" | base64 -d | sudo tee /opt/nft_portal/docker/nginx/nginx.ssl.conf >/dev/null
-          
-          # Create .env file
-          sudo mkdir -p /opt/nft_portal
+          # Update environment
           sudo tee /opt/nft_portal/.env >/dev/null << ENVEOF
           SECRET_KEY=$SECRET_KEY
           DEBUG=False
@@ -146,23 +116,13 @@ jobs:
           FLOWER_BASIC_AUTH=$FLOWER_BASIC_AUTH
           LE_EMAIL=$LE_EMAIL
           ENVEOF
-          sudo chmod 600 /opt/nft_portal/.env
           
-          # Login to ECR
-          echo "$ECR_PASSWORD" | sudo docker login --username AWS --password-stdin "$ECR_REGISTRY"
-          
-          # Deploy
+          # Start containers
           cd /opt/nft_portal
-          sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
-            docker compose -f docker/docker-compose.prod.yml pull
           sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
             docker compose -f docker/docker-compose.prod.yml up -d
           
-          # Wait and check status
+          # Wait and check
           sleep 30
           sudo docker ps
-          sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
-            docker compose -f docker/docker-compose.prod.yml ps
-          
-          echo "Deploy completed successfully!"
           EOF

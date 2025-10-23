@@ -1,136 +1,54 @@
-name: Build, Push to ECR and Deploy to EC2
+name: Deploy NFT Portal
 
 on:
   push:
-    branches: [ "main", "develop" ]
-    tags: [ "v*" ]
+    branches: [ "main" ]
 
 env:
   AWS_REGION: sa-east-1
   ECR_REPOSITORY: nft-portal
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
-      packages: read
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check required secrets
-        run: |
-          echo "Checking if required secrets are configured..."
-          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ]; then
-            echo "AWS_ACCESS_KEY_ID is not set"
-            exit 1
-          fi
-          if [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]; then
-            echo "AWS_SECRET_ACCESS_KEY is not set"
-            exit 1
-          fi
-          if [ -z "${{ secrets.EC2_HOST }}" ]; then
-            echo "EC2_HOST is not set"
-            exit 1
-          fi
-          if [ -z "${{ secrets.EC2_USER }}" ]; then
-            echo "EC2_USER is not set"
-            exit 1
-          fi
-          if [ -z "${{ secrets.EC2_SSH_KEY }}" ]; then
-            echo "EC2_SSH_KEY is not set"
-            exit 1
-          fi
-          if [ -z "${{ secrets.SECRET_KEY }}" ]; then
-            echo "SECRET_KEY is not set"
-            exit 1
-          fi
-          if [ -z "${{ secrets.POSTGRES_DB }}" ]; then
-            echo "POSTGRES_DB is not set"
-            exit 1
-          fi
-          if [ -z "${{ secrets.POSTGRES_USER }}" ]; then
-            echo "POSTGRES_USER is not set"
-            exit 1
-          fi
-          if [ -z "${{ secrets.POSTGRES_PASSWORD }}" ]; then
-            echo "POSTGRES_PASSWORD is not set"
-            exit 1
-          fi
-          echo "All required secrets are configured"
-
-      - name: Configure AWS credentials
+      - name: Configure AWS
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Test AWS connection
+      - name: Create ECR repos
         run: |
-          echo "Testing AWS connection..."
-          aws sts get-caller-identity
-          echo "AWS connection successful"
-
-      - name: Ensure ECR repositories exist
-        shell: bash
-        run: |
-          set -e
-          echo "Creating ECR repositories..."
           for repo in "${ECR_REPOSITORY}-web" "${ECR_REPOSITORY}-frontend"; do
-            echo "Checking repository: $repo"
             if ! aws ecr describe-repositories --repository-names "$repo" >/dev/null 2>&1; then
-              echo "Creating ECR repo: $repo"
-              aws ecr create-repository --repository-name "$repo" >/dev/null
-              echo "Created ECR repo: $repo"
-            else
-              echo "ECR repo exists: $repo"
+              aws ecr create-repository --repository-name "$repo"
             fi
           done
 
-      - name: Log in to Amazon ECR
+      - name: Login to ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Set image tags
-        id: vars
-        run: |
-          echo "sha=${GITHUB_SHA}" >> $GITHUB_OUTPUT
-          echo "registry=${{ steps.login-ecr.outputs.registry }}" >> $GITHUB_OUTPUT
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Test SSH connectivity
-        shell: bash
-        env:
-          TARGET: ${{ secrets.EC2_HOST }}
-        run: |
-          echo "Testing SSH connectivity to $TARGET..."
-          if command -v nc >/dev/null 2>&1; then
-            nc -z -w 5 "$TARGET" 22
-          else
-            timeout 5 bash -c "</dev/tcp/$TARGET/22" || { echo "SSH port 22 not reachable"; exit 1; }
-          fi
-          echo "SSH port 22 is reachable"
-
-      - name: Build and push backend image
+      - name: Build and push backend
         uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile
           push: true
           tags: |
-            ${{ steps.vars.outputs.registry }}/${{ env.ECR_REPOSITORY }}-web:${{ steps.vars.outputs.sha }}
-            ${{ steps.vars.outputs.registry }}/${{ env.ECR_REPOSITORY }}-web:latest
-          labels: |
-            org.opencontainers.image.source=${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-web:${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-web:latest
 
-      - name: Build and push frontend image
+      - name: Build and push frontend
         uses: docker/build-push-action@v6
         with:
           context: ./frontend
@@ -140,58 +58,47 @@ jobs:
           build-args: |
             VITE_API_BASE_URL=https://api.nftmarketplace.com.br
           tags: |
-            ${{ steps.vars.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:${{ steps.vars.outputs.sha }}
-            ${{ steps.vars.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:latest
-          labels: |
-            org.opencontainers.image.source=${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:${{ github.sha }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:latest
 
-      - name: Encode deployment files
-        id: encode
-        shell: bash
+      - name: Deploy to EC2
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_KEY: ${{ secrets.EC2_SSH_KEY }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
+          TAG: ${{ github.sha }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          FLOWER_BASIC_AUTH: ${{ secrets.FLOWER_BASIC_AUTH }}
+          LE_EMAIL: ${{ secrets.LE_EMAIL }}
         run: |
-          set -e
-          echo "compose_b64=$(base64 -w0 docker/docker-compose.prod.yml)" >> $GITHUB_OUTPUT
-          echo "nginx_b64=$(base64 -w0 docker/nginx/nginx.conf)" >> $GITHUB_OUTPUT
-          echo "nginx_ssl_b64=$(base64 -w0 docker/nginx/nginx.ssl.conf)" >> $GITHUB_OUTPUT
-
-      - name: Get ECR login password
-        id: ecrpass
-        run: echo "password=$(aws ecr get-login-password --region $AWS_REGION)" >> $GITHUB_OUTPUT
-
-      - name: Create deploy script
-        run: |
-          cat > deploy.sh << 'EOF'
-          #!/bin/bash
+          # Get ECR password
+          ECR_PASSWORD=$(aws ecr get-login-password --region $AWS_REGION)
+          
+          # Setup SSH
+          mkdir -p ~/.ssh
+          echo "$EC2_KEY" > ~/.ssh/ec2_key
+          chmod 600 ~/.ssh/ec2_key
+          
+          # Deploy
+          ssh -i ~/.ssh/ec2_key -o StrictHostKeyChecking=no "$EC2_USER@$EC2_HOST" << EOF
           set -e
           
-          # Install Docker if not present
-          if ! command -v docker &> /dev/null; then
-            echo "Installing Docker..."
-            sudo apt-get update
-            sudo apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release
-            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
-            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-            sudo apt-get update
-            sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-            sudo systemctl enable docker
-            sudo systemctl start docker
-            sudo usermod -aG docker $USER
-            echo "Docker installed successfully"
-          else
-            echo "Docker is already installed"
-          fi
+          # Login to ECR
+          echo "$ECR_PASSWORD" | sudo docker login --username AWS --password-stdin "$ECR_REGISTRY"
           
-          # Prepare directories
-          sudo mkdir -p /opt/nft_portal/docker/nginx
+          # Pull latest images
+          sudo docker pull "$ECR_REGISTRY/$ECR_REPOSITORY-web:$TAG"
+          sudo docker pull "$ECR_REGISTRY/$ECR_REPOSITORY-frontend:$TAG"
           
-          # Deploy files
-          echo "$COMPOSE_B64" | base64 -d | sudo tee /opt/nft_portal/docker/docker-compose.prod.yml >/dev/null
-          echo "$NGINX_B64" | base64 -d | sudo tee /opt/nft_portal/docker/nginx/nginx.conf >/dev/null
-          echo "$NGINX_SSL_B64" | base64 -d | sudo tee /opt/nft_portal/docker/nginx/nginx.ssl.conf >/dev/null
+          # Stop old containers
+          sudo docker compose -f /opt/nft_portal/docker/docker-compose.prod.yml down || true
           
-          # Create .env file
-          sudo mkdir -p /opt/nft_portal
+          # Update environment
           sudo tee /opt/nft_portal/.env >/dev/null << ENVEOF
           SECRET_KEY=$SECRET_KEY
           DEBUG=False
@@ -209,73 +116,13 @@ jobs:
           FLOWER_BASIC_AUTH=$FLOWER_BASIC_AUTH
           LE_EMAIL=$LE_EMAIL
           ENVEOF
-          sudo chmod 600 /opt/nft_portal/.env
           
-          # Login to ECR
-          echo "$ECR_PASSWORD" | sudo docker login --username AWS --password-stdin "$ECR_REGISTRY"
-          
-          # Deploy
+          # Start containers
           cd /opt/nft_portal
-          sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
-            docker compose -f docker/docker-compose.prod.yml pull
           sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
             docker compose -f docker/docker-compose.prod.yml up -d
           
-          # Wait for services to be ready
+          # Wait and check
           sleep 30
-          
-          # Check status
           sudo docker ps
-          sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
-            docker compose -f docker/docker-compose.prod.yml ps
-          
-          echo "Deploy completed successfully"
           EOF
-
-      - name: Deploy on EC2
-        shell: bash
-        env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
-          EC2_USER: ${{ secrets.EC2_USER }}
-          EC2_KEY: ${{ secrets.EC2_SSH_KEY }}
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
-          TAG: ${{ steps.vars.outputs.sha }}
-          AWS_REGION: ${{ env.AWS_REGION }}
-          ECR_PASSWORD: ${{ steps.ecrpass.outputs.password }}
-          COMPOSE_B64: ${{ steps.encode.outputs.compose_b64 }}
-          NGINX_B64: ${{ steps.encode.outputs.nginx_b64 }}
-          NGINX_SSL_B64: ${{ steps.encode.outputs.nginx_ssl_b64 }}
-          SECRET_KEY: ${{ secrets.SECRET_KEY }}
-          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
-          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
-          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
-          FLOWER_BASIC_AUTH: ${{ secrets.FLOWER_BASIC_AUTH }}
-          LE_EMAIL: ${{ secrets.LE_EMAIL }}
-        run: |
-          set -euo pipefail
-          echo "Preparing SSH connection..."
-          mkdir -p ~/.ssh
-          echo "$EC2_KEY" > ~/.ssh/ec2_key
-          chmod 600 ~/.ssh/ec2_key
-          ssh-keyscan -T 5 -p 22 "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
-          
-          echo "Deploying to EC2..."
-          scp -i ~/.ssh/ec2_key -o StrictHostKeyChecking=no deploy.sh "$EC2_USER@$EC2_HOST":/tmp/
-          ssh -i ~/.ssh/ec2_key -o StrictHostKeyChecking=no "$EC2_USER@$EC2_HOST" \
-            "chmod +x /tmp/deploy.sh && \
-            ECR_REGISTRY='$ECR_REGISTRY' \
-            ECR_REPOSITORY='$ECR_REPOSITORY' \
-            TAG='$TAG' \
-            AWS_REGION='$AWS_REGION' \
-            ECR_PASSWORD='$ECR_PASSWORD' \
-            COMPOSE_B64='$COMPOSE_B64' \
-            NGINX_B64='$NGINX_B64' \
-            NGINX_SSL_B64='$NGINX_SSL_B64' \
-            SECRET_KEY='$SECRET_KEY' \
-            POSTGRES_DB='$POSTGRES_DB' \
-            POSTGRES_USER='$POSTGRES_USER' \
-            POSTGRES_PASSWORD='$POSTGRES_PASSWORD' \
-            FLOWER_BASIC_AUTH='$FLOWER_BASIC_AUTH' \
-            LE_EMAIL='$LE_EMAIL' \
-            /tmp/deploy.sh"
