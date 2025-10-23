@@ -153,7 +153,8 @@ jobs:
             sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
               docker compose -f docker/docker-compose.prod.yml up -d
             # Obtain/renew Let's Encrypt certificate (requires LE_EMAIL in /opt/nft_portal/.env)
-            LE_EMAIL=$(grep -E '^LE_EMAIL=' /opt/nft_portal/.env | sed 's/^LE_EMAIL=//') || true
+            # Use sed to extract the value safely; avoids non-zero grep exit under 'set -e' when not present
+            LE_EMAIL=$(sed -n 's/^LE_EMAIL=//p' /opt/nft_portal/.env)
             if [ -z "$LE_EMAIL" ]; then
               echo "WARNING: LE_EMAIL not set in /opt/nft_portal/.env. Skipping certificate issuance."
             else
