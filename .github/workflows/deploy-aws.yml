@@ -171,7 +171,7 @@ jobs:
             sudo chmod 600 /opt/nft_portal/.env
 
             # Preflight: ensure SECRET_KEY is set or fail fast with guidance
-            SECRET_KEY_VAL=$(sed -n 's/^SECRET_KEY=//p' /opt/nft_portal/.env)
+            SECRET_KEY_VAL=$(sudo sed -n 's/^SECRET_KEY=//p' /opt/nft_portal/.env)
             if [ -z "$SECRET_KEY_VAL" ]; then
               echo "ERROR: SECRET_KEY is not set in /opt/nft_portal/.env."
               echo "Generate one (run on EC2) and add to /opt/nft_portal/.env:"
@@ -181,9 +181,9 @@ jobs:
             fi
 
             # Optional: reconcile Postgres role/db using values from .env
-            DB_NAME=$(sed -n 's/^POSTGRES_DB=//p' /opt/nft_portal/.env)
-            DB_USER=$(sed -n 's/^POSTGRES_USER=//p' /opt/nft_portal/.env)
-            DB_PASS=$(sed -n 's/^POSTGRES_PASSWORD=//p' /opt/nft_portal/.env)
+            DB_NAME=$(sudo sed -n 's/^POSTGRES_DB=//p' /opt/nft_portal/.env)
+            DB_USER=$(sudo sed -n 's/^POSTGRES_USER=//p' /opt/nft_portal/.env)
+            DB_PASS=$(sudo sed -n 's/^POSTGRES_PASSWORD=//p' /opt/nft_portal/.env)
             if [ -n "$DB_NAME" ] && [ -n "$DB_USER" ] && [ -n "$DB_PASS" ]; then
               echo "[DEPLOY] Ensuring Postgres role and database exist/match credentials"
               # Use the postgres superuser inside the container; local socket auth typically allows this
@@ -241,7 +241,7 @@ jobs:
               docker compose -f docker/docker-compose.prod.yml exec -T frontend sh -lc 'echo "+ /dist:"; ls -la /dist; echo "+ /app/build:"; ls -la /app/build 2>/dev/null || true'
             # Obtain/renew Let's Encrypt certificate (requires LE_EMAIL in /opt/nft_portal/.env)
             # Use sed to extract the value safely; avoids non-zero grep exit under 'set -e' when not present
-            LE_EMAIL=$(sed -n 's/^LE_EMAIL=//p' /opt/nft_portal/.env)
+            LE_EMAIL=$(sudo sed -n 's/^LE_EMAIL=//p' /opt/nft_portal/.env)
             if [ -z "$LE_EMAIL" ]; then
               echo "WARNING: LE_EMAIL not set in /opt/nft_portal/.env. Skipping certificate issuance."
             else
