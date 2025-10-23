@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import os
+from urllib.parse import urlparse
 from datetime import timedelta
 from pathlib import Path
 from dotenv import load_dotenv
@@ -29,7 +30,7 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "t")
 
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
+ALLOWED_HOSTS = [h.strip() for h in os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h.strip()]
 
 
 # Application definition
@@ -166,7 +167,7 @@ STORAGES = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-FRONTEND_ORIGINS = [o for o in os.getenv("FRONTEND_ORIGINS", "").split(",") if o]
+FRONTEND_ORIGINS = [o.strip() for o in os.getenv("FRONTEND_ORIGINS", "").split(",") if o.strip()]
 API_ORIGIN = os.getenv("API_ORIGIN")  # e.g. https://api.nftmarketplace.com.br
 
 if FRONTEND_ORIGINS:
@@ -185,6 +186,20 @@ for origin in FRONTEND_ORIGINS:
     CSRF_TRUSTED_ORIGINS.append(origin)
 if API_ORIGIN:
     CSRF_TRUSTED_ORIGINS.append(API_ORIGIN)
+
+# If ALLOWED_HOSTS was not explicitly configured for production, augment it with hosts
+# parsed from FRONTEND_ORIGINS and API_ORIGIN to reduce misconfiguration 400s.
+if not os.getenv("ALLOWED_HOSTS"):
+    derived_hosts: list[str] = []
+    for origin in FRONTEND_ORIGINS + ([API_ORIGIN] if API_ORIGIN else []):
+        try:
+            host = urlparse(origin).hostname
+            if host:
+                derived_hosts.append(host)
+        except Exception:
+            pass
+    # Merge and de-duplicate
+    ALLOWED_HOSTS = list(dict.fromkeys(ALLOWED_HOSTS + derived_hosts))
 
 # Configure token lifetimes for Simple JWT
 # If tokens are expiring too quickly (or if there is small clock drift between services),

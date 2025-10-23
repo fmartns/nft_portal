@@ -153,8 +153,22 @@ jobs:
             sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
               docker compose -f docker/docker-compose.prod.yml up -d
             echo "[DEPLOY] docker compose up -d completed"
-            # Be tolerant for the remaining post-up steps so incidental non-zero exits don't fail the job
+            # Quick diagnostics to aid troubleshooting without failing the job
             set +e
+            echo "[DEPLOY][DIAG] docker ps"
+            sudo docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}'
+            echo "[DEPLOY][DIAG] compose ps"
+            sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+              docker compose -f docker/docker-compose.prod.yml ps
+            echo "[DEPLOY][DIAG] web/nginx/frontend last logs"
+            sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+              docker compose -f docker/docker-compose.prod.yml logs --no-color --tail=150 web nginx frontend || true
+            echo "[DEPLOY][DIAG] nginx html contents"
+            sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+              docker compose -f docker/docker-compose.prod.yml exec -T nginx sh -lc 'ls -la /usr/share/nginx/html || true'
+            echo "[DEPLOY][DIAG] frontend dist in image volume"
+            sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+              docker compose -f docker/docker-compose.prod.yml exec -T frontend sh -lc 'ls -la /dist; ls -la /app/dist 2>/dev/null || true'
             # Obtain/renew Let's Encrypt certificate (requires LE_EMAIL in /opt/nft_portal/.env)
             # Use sed to extract the value safely; avoids non-zero grep exit under 'set -e' when not present
             LE_EMAIL=$(sed -n 's/^LE_EMAIL=//p' /opt/nft_portal/.env)
