@@ -45,6 +45,11 @@ services:
     volumes:
       - staticfiles:/app/staticfiles
       - media:/app/media
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
     restart: unless-stopped
 
   celery_worker:
@@ -103,7 +108,7 @@ services:
     volumes:
       - frontend_dist:/dist
     command: >
-      sh -lc "mkdir -p /dist && if [ -d /app/dist ] && [ \"$(ls -A /app/dist 2>/dev/null)\" ]; then rm -rf /dist/*; cp -r /app/dist/* /dist/; echo 'Frontend assets published'; else echo 'WARNING: /app/dist not found or empty in image'; fi; tail -f /dev/null"
+      sh -lc "mkdir -p /dist && if [ -d /app/build ] && [ \"$(ls -A /app/build 2>/dev/null)\" ]; then rm -rf /dist/*; cp -r /app/build/* /dist/; echo 'Frontend assets published from /app/build'; else echo 'WARNING: /app/build not found or empty in image'; fi; tail -f /dev/null"
     depends_on:
       - web
     restart: unless-stopped
@@ -111,8 +116,10 @@ services:
   nginx:
     image: nginx:1.27-alpine
     depends_on:
-      - web
-      - frontend
+      web:
+        condition: service_healthy
+      frontend:
+        condition: service_started
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - frontend_dist:/usr/share/nginx/html:ro
