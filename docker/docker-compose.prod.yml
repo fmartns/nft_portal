@@ -106,9 +106,7 @@ services:
     env_file:
       - ../.env
     volumes:
-      - frontend_dist:/dist
-    command: >
-      sh -lc "mkdir -p /dist && if [ -d /app/build ] && [ \"$(ls -A /app/build 2>/dev/null)\" ]; then rm -rf /dist/*; cp -r /app/build/* /dist/; echo 'Frontend assets published from /app/build'; else echo 'WARNING: /app/build not found or empty in image'; fi; tail -f /dev/null"
+      - frontend_dist:/usr/share/nginx/html
     depends_on:
       - web
     restart: unless-stopped

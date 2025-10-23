@@ -87,7 +87,7 @@ jobs:
         with:
           context: ./frontend
           file: frontend/Dockerfile
-          target: build
+          target: prod
           push: true
           build-args: |
             VITE_API_BASE_URL=https://api.nftmarketplace.com.br

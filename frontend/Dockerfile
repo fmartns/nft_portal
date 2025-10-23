@@ -12,7 +12,14 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 # Call vite via node to avoid executable permission issues in some environments
 RUN node ./node_modules/vite/bin/vite.js build
 
-# Default (final) stage for development: run Vite dev server
+# Production stage: serve static files with nginx
+FROM nginx:1.27-alpine as prod
+COPY --from=build /app/build /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+
+# Development stage: run Vite dev server
 FROM node:20-alpine as dev
 WORKDIR /app
 COPY package.json package-lock.json ./
