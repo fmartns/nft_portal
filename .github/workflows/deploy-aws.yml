@@ -92,7 +92,8 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           # Comma-separated patterns to avoid empty tar issue
           source: "docker/docker-compose.prod.yml,docker/nginx/nginx.conf"
-          target: /opt/nft_portal
+          # Upload to a user-writable location; we'll move with sudo in the next step
+          target: ~/.nft_portal_upload
 
       - name: Deploy on EC2 (pull images and restart)
         uses: appleboy/ssh-action@v1.1.0
@@ -109,16 +110,22 @@ jobs:
           script_stop: true
           script: |
             set -e
+            UPLOAD_DIR="$HOME/.nft_portal_upload"
+            # Prepare target directories
             sudo mkdir -p /opt/nft_portal/docker/nginx
-            # Move files into expected paths (scp placed them under /opt/nft_portal/docker/... if path includes docker/)
-            if [ -f /opt/nft_portal/docker-compose.prod.yml ]; then
-              sudo mkdir -p /opt/nft_portal/docker
-              sudo mv -f /opt/nft_portal/docker-compose.prod.yml /opt/nft_portal/docker/docker-compose.prod.yml || true
+            # Copy uploaded files into /opt with sudo
+            if [ -f "$UPLOAD_DIR/docker/docker-compose.prod.yml" ]; then
+              sudo cp -f "$UPLOAD_DIR/docker/docker-compose.prod.yml" /opt/nft_portal/docker/docker-compose.prod.yml
+            else
+              echo "ERROR: compose file not found at $UPLOAD_DIR/docker/docker-compose.prod.yml" >&2
             fi
-            if [ -f /opt/nft_portal/nginx.conf ]; then
-              sudo mkdir -p /opt/nft_portal/docker/nginx
-              sudo mv -f /opt/nft_portal/nginx.conf /opt/nft_portal/docker/nginx/nginx.conf || true
+            if [ -f "$UPLOAD_DIR/docker/nginx/nginx.conf" ]; then
+              sudo cp -f "$UPLOAD_DIR/docker/nginx/nginx.conf" /opt/nft_portal/docker/nginx/nginx.conf
+            else
+              echo "ERROR: nginx.conf not found at $UPLOAD_DIR/docker/nginx/nginx.conf" >&2
             fi
+            # Cleanup upload dir
+            rm -rf "$UPLOAD_DIR"
 
             # Verify application .env exists (used by services)
             if [ ! -f /opt/nft_portal/.env ]; then
