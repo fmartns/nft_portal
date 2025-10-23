@@ -142,12 +142,10 @@ jobs:
             # Login to ECR using password from runner (no awscli required on EC2)
             echo "${ECR_PASSWORD}" | sudo docker login --username AWS --password-stdin "${ECR_REGISTRY}"
 
-            export ECR_REGISTRY
-            export ECR_REPOSITORY
-            export TAG
-
             # Pull and start updated services
-            sudo docker compose -f docker/docker-compose.prod.yml pull
-            sudo docker compose -f docker/docker-compose.prod.yml up -d
+            sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+              docker compose -f docker/docker-compose.prod.yml pull
+            sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+              docker compose -f docker/docker-compose.prod.yml up -d
             # Optional cleanup
             sudo docker image prune -f
