@@ -137,11 +137,38 @@ jobs:
             # Cleanup upload dir
             rm -rf "$UPLOAD_DIR"
 
-            # Verify application .env exists (used by services)
-            if [ ! -f /opt/nft_portal/.env ]; then
-              echo "ERROR: /opt/nft_portal/.env missing. Create it with Django/DB/Redis settings and rerun."
-              exit 1
-            fi
+            # (Re)generate /opt/nft_portal/.env from GitHub Secrets to avoid drift on server
+            echo "[DEPLOY] Writing /opt/nft_portal/.env from GitHub Secrets"
+            sudo mkdir -p /opt/nft_portal
+            umask 077
+            sudo tee /opt/nft_portal/.env >/dev/null <<'EOF'
+            SECRET_KEY=${{ secrets.SECRET_KEY }}
+            DEBUG=False
+            ALLOWED_HOSTS=nftmarketplace.com.br,www.nftmarketplace.com.br,api.nftmarketplace.com.br
+
+            # Database
+            USE_POSTGRES=1
+            POSTGRES_HOST=db
+            POSTGRES_PORT=5432
+            POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+            POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+
+            # Celery / Redis
+            CELERY_BROKER_URL=redis://redis:6379/0
+            CELERY_RESULT_BACKEND=redis://redis:6379/0
+
+            # CORS/CSRF
+            FRONTEND_ORIGINS=https://nftmarketplace.com.br,https://www.nftmarketplace.com.br
+            API_ORIGIN=https://api.nftmarketplace.com.br
+
+            # Optional: Flower basic auth (user:pass)
+            FLOWER_BASIC_AUTH=${{ secrets.FLOWER_BASIC_AUTH }}
+
+            # Let's Encrypt
+            LE_EMAIL=${{ secrets.LE_EMAIL }}
+            EOF
+            sudo chmod 600 /opt/nft_portal/.env
 
             # Preflight: ensure SECRET_KEY is set or fail fast with guidance
             SECRET_KEY_VAL=$(sed -n 's/^SECRET_KEY=//p' /opt/nft_portal/.env)
