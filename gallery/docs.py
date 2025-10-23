@@ -10,7 +10,7 @@ from .serializers import NftCollectionSerializer
 
 collection_list_schema = extend_schema(
     operation_id="collections_list",
-    tags=["Collections"],
+    tags=["collections"],
     summary="Listar todas as coleções NFT",
     description="""
     Retorna uma lista de todas as coleções NFT cadastradas no sistema.
@@ -91,7 +91,7 @@ collection_list_schema = extend_schema(
 
 collection_create_schema = extend_schema(
     operation_id="collections_create",
-    tags=["Collections"],
+    tags=["collections"],
     summary="Criar nova coleção NFT",
     description="""
     Cria uma nova coleção NFT no sistema.
@@ -172,7 +172,7 @@ collection_create_schema = extend_schema(
 
 collection_detail_schema = extend_schema(
     operation_id="collections_detail",
-    tags=["Collections"],
+    tags=["collections"],
     summary="Obter detalhes de uma coleção NFT",
     description="""
     Retorna os detalhes completos de uma coleção NFT específica.
@@ -205,7 +205,7 @@ collection_detail_schema = extend_schema(
 
 collection_update_schema = extend_schema(
     operation_id="collections_update",
-    tags=["Collections"],
+    tags=["collections"],
     summary="Atualizar completamente uma coleção NFT",
     description="""
     Atualiza completamente uma coleção NFT existente (PUT).
@@ -246,7 +246,7 @@ collection_update_schema = extend_schema(
 
 collection_partial_update_schema = extend_schema(
     operation_id="collections_partial_update",
-    tags=["Collections"],
+    tags=["collections"],
     summary="Atualizar parcialmente uma coleção NFT",
     description="""
     Atualiza parcialmente uma coleção NFT existente (PATCH).
@@ -301,7 +301,7 @@ collection_partial_update_schema = extend_schema(
 
 collection_delete_schema = extend_schema(
     operation_id="collections_delete",
-    tags=["Collections"],
+    tags=["collections"],
     summary="Deletar uma coleção NFT",
     description="""
     Remove permanentemente uma coleção NFT do sistema.
@@ -327,7 +327,7 @@ collection_delete_schema = extend_schema(
 
 collection_stats_schema = extend_schema(
     operation_id="collections_stats",
-    tags=["Collections - Analytics"],
+    tags=["collections"],
     summary="Obter estatísticas gerais das coleções",
     description="""
     Retorna estatísticas agregadas de todas as coleções NFT no sistema.
@@ -365,7 +365,7 @@ collection_stats_schema = extend_schema(
 
 collection_trending_schema = extend_schema(
     operation_id="collections_trending",
-    tags=["Collections - Analytics"],
+    tags=["collections"],
     summary="Obter coleções em alta (trending)",
     description="""
     Retorna as coleções NFT com maior volume de negociação.

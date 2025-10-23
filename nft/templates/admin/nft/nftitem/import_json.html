@@ -1,0 +1,28 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+  <div class="content">
+    <h1>{% trans "Importar NFTs via JSON" %}</h1>
+
+    <p class="help">
+      Cole o JSON seguindo o template: {"nfts": [{"model": "nft.nftitem", "pk": 123, "fields": { ... }}]}.
+      Também aceitamos apenas a lista de objetos ou um único objeto com "fields".
+    </p>
+
+    <form method="post" novalidate>
+      {% csrf_token %}
+      <div class="form-row">
+        <label for="id_payload"><strong>{% trans "JSON" %}</strong></label>
+        <textarea name="payload" id="id_payload" rows="18" style="width:100%; font-family:monospace;"></textarea>
+      </div>
+      <div class="form-row" style="margin-top: 10px;">
+        <label><input type="checkbox" name="update_existing"> {% trans "Atualizar registros existentes (por product_code ou pk)" %}</label>
+      </div>
+      <div class="submit-row">
+        <button type="submit" class="default">{% trans "Importar" %}</button>
+        <a href="{% url 'admin:nft_nftitem_changelist' %}" class="button cancel-link">{% trans "Cancelar" %}</a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

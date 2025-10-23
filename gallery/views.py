@@ -49,40 +49,9 @@ class CollectionListCreateAPIView(APIView):
         serializer = NftCollectionSerializer(qs, many=True)
         return Response(serializer.data)
 
-    @collection_create_schema
-    def post(self, request):
-        """
-        Cria coleções NFT.
-        Aceita:
-        - um único objeto (dict) de coleção
-        - uma lista de objetos
-        - um wrapper {"collections": [ ... ]}
-        """
-        data = request.data
-
-        # Suporta wrapper {"collections": [...]}
-        if isinstance(data, dict) and "collections" in data:
-            data = data["collections"]
-
-        is_many = isinstance(data, list)
-
-        serializer = NftCollectionSerializer(data=data, many=is_many)
-        if serializer.is_valid():
-            objs = serializer.save()  # funciona para many=True também
-            out = NftCollectionSerializer(objs, many=is_many).data
-            return Response(out, status=status.HTTP_201_CREATED)
-
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
 class CollectionDetailAPIView(APIView):
     """
     API para operações com uma coleção NFT específica.
-
-    GET: Retorna detalhes da coleção
-    PUT: Atualiza completamente a coleção
-    PATCH: Atualiza parcialmente a coleção
-    DELETE: Remove a coleção
     """
 
     permission_classes = [AllowAny]
@@ -97,34 +66,6 @@ class CollectionDetailAPIView(APIView):
         """Retorna os detalhes completos de uma coleção NFT."""
         obj = self.get_object(slug)
         return Response(NftCollectionSerializer(obj).data)
-
-    @collection_update_schema
-    def put(self, request, slug):
-        """Atualiza completamente uma coleção NFT."""
-        obj = self.get_object(slug)
-        serializer = NftCollectionSerializer(obj, data=request.data)
-        if serializer.is_valid():
-            obj = serializer.save()
-            return Response(NftCollectionSerializer(obj).data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    @collection_partial_update_schema
-    def patch(self, request, slug):
-        """Atualiza parcialmente uma coleção NFT."""
-        obj = self.get_object(slug)
-        serializer = NftCollectionSerializer(obj, data=request.data, partial=True)
-        if serializer.is_valid():
-            obj = serializer.save()
-            return Response(NftCollectionSerializer(obj).data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-    @collection_delete_schema
-    def delete(self, request, slug):
-        """Remove permanentemente uma coleção NFT."""
-        obj = self.get_object(slug)
-        obj.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
 
 class CollectionStatsAPIView(APIView):
     """

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Button } from './ui/button';
 import { ImageWithFallback } from './figma/ImageWithFallback';
-import { ArrowLeft, Heart, Share2, ShoppingCart, MessageCircle } from 'lucide-react';
+import { ArrowLeft, Heart, Share2, ShoppingCart, MessageCircle, Info } from 'lucide-react';
 import { fetchImmutableItem, fetchImmutableListings, ImmutableItemView, ImmutableListingView, fetchImmutableAsset, metadataToAttributes } from '@/api/immutable';
 import { Tabs, TabsContent } from './ui/tabs';
 import { Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ComposedChart, Bar, Legend, Label, ReferenceLine } from 'recharts';
 import { upsertNFTByProductCode, fetchNFTByProductCode, recordNFTView } from '@/api/nft';
 import { Skeleton } from './ui/skeleton';
+import { Tooltip as UITooltip, TooltipContent as UITooltipContent, TooltipTrigger as UITooltipTrigger } from './ui/tooltip';
 
 interface NFTItemPageProps {
   slug: string;
@@ -141,8 +142,14 @@ export function NFTItemPage({ slug, productCode, onBack }: NFTItemPageProps) {
               if (isFinite(avgNum) && avgNum > 0) setSevenDayAvgBRL(avgNum);
             }
 
+            // Preferir nome do backend (que já considera pt-BR quando disponível),
+            // mas somente se o product_code retornar correto
+            if (bi && (bi as any).name && (bi as any).product_code === productCode) {
+              setItem(prev => prev ? { ...prev, name: (bi as any).name } : prev);
+            }
+
             // Se não conseguimos carregar o item da Immutable, mas temos os dados do backend, monta item mínimo
-            if (!data && bi) {
+            if (!data && bi && (bi as any).product_code === productCode) {
               const backendName = (bi as any).name || productCode;
               const backendImg = (bi as any).image_url || '';
               const fallbackFromBackend: ImmutableItemView = {
@@ -454,6 +461,23 @@ export function NFTItemPage({ slug, productCode, onBack }: NFTItemPageProps) {
                       <div className="rounded-lg bg-black/20 p-3 text-center">
                         <div className="text-xs text-gray-400">Preço</div>
                         <div className="text-xl font-bold text-[#FFE000]">R$ {formatBRL(displayPriceBRL)}</div>
+                        {displayPriceBRL > 100 && (
+                          <div className="mt-1 text-[11px] text-gray-300 flex items-center justify-center gap-1">
+                            <span>
+                              3x de R$ {formatBRL((displayPriceBRL / 3))}
+                            </span>
+                            <UITooltip>
+                              <UITooltipTrigger asChild>
+                                <span className="inline-flex items-center justify-center align-middle">
+                                  <Info className="w-3.5 h-3.5 text-gray-400 hover:text-gray-300 cursor-help" />
+                                </span>
+                              </UITooltipTrigger>
+                              <UITooltipContent sideOffset={6} className="bg-black text-white border border-white/20">
+                                Para parcelamento, chame no WhatsApp para mais informações.
+                              </UITooltipContent>
+                            </UITooltip>
+                          </div>
+                        )}
                       </div>
                     </div>
                     {/* Quantity and currency controls removed as requested */}

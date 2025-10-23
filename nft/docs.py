@@ -10,7 +10,7 @@ from .serializers import FetchByProductCodeSerializer, NFTItemSerializer
 
 nft_item_upsert_schema = extend_schema(
     operation_id="nft_items_upsert",
-    tags=["NFT"],
+    tags=["nft"],
     summary="Cria ou atualiza item pelo menor preço",
     description=(
         "Envia um product_code; o servidor consulta a Immutable, encontra o menor preço, "
@@ -65,7 +65,7 @@ nft_item_upsert_schema = extend_schema(
 
 nft_item_list_schema = extend_schema(
     operation_id="nft_items_list",
-    tags=["NFT"],
+    tags=["nft"],
     summary="Lista NFTs com filtros e busca",
     description=(
         "Retorna uma lista paginada de NFTs com suporte a filtros, busca e ordenação.\n\n"

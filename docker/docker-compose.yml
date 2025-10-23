@@ -1,37 +1,11 @@
 services:
-  db:
-    image: postgres:16
-    env_file:
-      - ../.env
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    restart: unless-stopped
-    # Não expor Postgres em produção
-
-  redis:
-    image: redis:7-alpine
-    command: ["redis-server", "--appendonly", "yes"]
-    volumes:
-      - redisdata:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-    restart: unless-stopped
-    # Não exponha redis pra Internet:
-    # ports:
-    #   - "6379:6379"
-
   web:
     build:
       context: ../
       dockerfile: docker/Dockerfile
+    command: ["/bin/sh", "-c", "python manage.py migrate --noinput && python manage.py runserver 0.0.0.0:8000"]
+    ports:
+      - "8001:8000"
     env_file:
       - ../.env
     depends_on:
@@ -39,130 +13,96 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    environment:
-      USE_POSTGRES: "1"
-      POSTGRES_HOST: db
-      POSTGRES_PORT: "5432"
-      TZ: America/Sao_Paulo
-    command: >
-      /bin/sh -c "
-      python manage.py migrate --noinput &&
-      python manage.py collectstatic --noinput &&
-      gunicorn core.wsgi:application --bind 0.0.0.0:8000 --workers 3"
-    # Do not expose publicly; nginx will proxy
-    volumes:
-      - staticfiles:/app/staticfiles
-      - media:/app/media
-    restart: unless-stopped
-
-  celery_worker:
-    build:
-      context: ../
-      dockerfile: docker/Dockerfile
-    env_file:
-      - ../.env
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    environment:
-      USE_POSTGRES: "1"
-      POSTGRES_HOST: db
-      POSTGRES_PORT: "5432"
-      TZ: America/Sao_Paulo
-    command: >
-      /bin/sh -c "
-      celery -A core worker -l info -Q celery,default -n worker1@%h -E"
-    restart: unless-stopped
-
-  celery_beat:
-    build:
-      context: ../
-      dockerfile: docker/Dockerfile
-    env_file:
-      - ../.env
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    environment:
-      USE_POSTGRES: "1"
-      POSTGRES_HOST: db
-      POSTGRES_PORT: "5432"
-      TZ: America/Sao_Paulo
-    command: >
-      /bin/sh -c "
-      celery -A core beat -l info --schedule=/app/celerybeat-schedule/celerybeat-schedule"
-    volumes:
-      - celerybeat:/app/celerybeat-schedule
-    restart: unless-stopped
-
-  flower:
-    image: mher/flower:2.0.1
-    env_file:
-      - ../.env
-    environment:
-      FLOWER_PORT: "5555"
-      TZ: America/Sao_Paulo
-    depends_on:
-      redis:
-        condition: service_healthy
-    # Flower is internal only; no published ports
     restart: unless-stopped
 
   frontend:
     build:
       context: ../frontend
       dockerfile: Dockerfile
-      args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://api.nftmarketplace.com.br}
     env_file:
       - ../.env
     environment:
-      - VITE_API_BASE_URL=${VITE_API_BASE_URL}
-    volumes:
-      - frontend_dist:/dist
-    command: >
-      sh -lc "rm -rf /dist/* && cp -r /app/build/* /dist/ && echo 'Frontend assets published' && tail -f /dev/null"
-    depends_on:
-      - web
-    restart: unless-stopped
-
-  nginx:
-    build:
-      context: ./nginx
-      dockerfile: Dockerfile
-    depends_on:
-      - web
-      - frontend
-    volumes:
-      - frontend_dist:/usr/share/nginx/html:ro
-      - certbot_www:/var/www/certbot
-      - letsencrypt:/etc/letsencrypt
-      - staticfiles:/app/staticfiles:ro
-      - media:/app/media:ro
+      # Browser will hit the mapped host port
+      - VITE_API_BASE_URL=http://localhost:8001
+      - PORT=5173
     ports:
-      - "80:80"
-      - "443:443"
+      - "5173:5173"
+    depends_on:
+      web:
+        condition: service_started
     restart: unless-stopped
 
-  certbot:
-    image: certbot/certbot:latest
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    ports:
+      - "54321:5432"
     volumes:
-      - certbot_www:/var/www/certbot
-      - letsencrypt:/etc/letsencrypt
-    entrypoint: sh
-    command: -c "trap exit TERM; while :; do sleep 12h & wait $${!}; certbot renew --webroot -w /var/www/certbot --deploy-hook 'nginx -s reload' || true; done"
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  celery_worker:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
+    command: ["/bin/sh", "-c", "celery -A core worker -l info -Q celery,default -n worker1@%h -E"]
+    env_file:
+      - ../.env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  celery_beat:
+    build:
+      context: ../
+      dockerfile: docker/Dockerfile
+    command: ["/bin/sh", "-c", "celery -A core beat -l info --schedule=/app/celerybeat-schedule/celerybeat-schedule"]
+    env_file:
+      - ../.env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - celerybeat:/app/celerybeat-schedule
+    restart: unless-stopped
+
+  flower:
+    image: mher/flower:2.0.1
+    ports:
+      - "5555:5555"
+    env_file:
+      - ../.env
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - FLOWER_PORT=5555
+    depends_on:
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
   pgdata:
-  redisdata:
   celerybeat:
-  frontend_dist:
-  certbot_www:
-  letsencrypt:
-  staticfiles:
-  media:

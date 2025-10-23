@@ -6,6 +6,7 @@ class NFTItem(models.Model):
     blueprint = models.TextField(blank=True)
     image_url = models.URLField(blank=True)
     name = models.CharField(max_length=200, db_index=True)
+    name_pt_br = models.CharField("Nome (pt-BR)", max_length=200, blank=True, db_index=True)
 
     source = models.CharField(max_length=80, db_index=True, blank=True)
     is_crafted_item = models.BooleanField(default=False, db_index=True)

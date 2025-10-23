@@ -39,7 +39,9 @@ export interface Paginated<T> {
 
 export interface NFTItem {
   id: number;
-  name: string;
+  name: string; // pt-BR when available, otherwise English
+  original_name?: string | null; // original English name
+  name_pt_br?: string | null;
   product_code: string | null;
   image_url: string;
   rarity: string;

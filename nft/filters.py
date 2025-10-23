@@ -28,6 +28,8 @@ class NFTItemFilter(filters.FilterSet):
     collection_slug = filters.CharFilter(
         field_name="collection__slug", lookup_expr="iexact"
     )
+    # Filter by exact product_code (used by frontend to fetch a single item)
+    product_code = filters.CharFilter(field_name="product_code", lookup_expr="iexact")
     # Use a custom method-based filter that robustly parses truthy values
     promo_only = filters.CharFilter(method="filter_promo_only")
 
@@ -45,6 +47,7 @@ class NFTItemFilter(filters.FilterSet):
             "max_price_brl",
             "collection_id",
             "collection_slug",
+            "product_code",
             "promo_only",
         ]
 

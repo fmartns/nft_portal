@@ -295,6 +295,7 @@ export function AllItemsMarketplace() {
     const q = searchQuery.toLowerCase();
     const matchesSearch = !q ||
       (item.name && item.name.toLowerCase().includes(q)) ||
+      (item.original_name && String(item.original_name).toLowerCase().includes(q)) ||
       (item.collection_name && item.collection_name.toLowerCase().includes(q)) ||
       (item.product_code && item.product_code.toLowerCase().includes(q));
     const matchesRarity = selectedRarity === 'all' || item.rarity === selectedRarity;

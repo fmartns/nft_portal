@@ -16,6 +16,11 @@ class FetchByProductCodeSerializer(serializers.Serializer):
 
 
 class NFTItemSerializer(serializers.ModelSerializer):
+    # Prefer pt-BR name when available
+    name = serializers.SerializerMethodField(read_only=True)
+    # Also expose the original English name for client-side search fallbacks
+    original_name = serializers.CharField(source="name", read_only=True)
+    name_pt_br = serializers.CharField(read_only=True)
     # Enrich with collection metadata useful to the frontend routing/UI
     collection_slug = serializers.SerializerMethodField(read_only=True)
     collection_name = serializers.SerializerMethodField(read_only=True)
@@ -23,8 +28,13 @@ class NFTItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = NFTItem
         fields = "__all__"
-        # Expose extra computed fields as well
-        extra_fields = ["collection_slug", "collection_name"]
+        # Expose extra computed fields as well (for documentation only)
+        extra_fields = [
+            "collection_slug",
+            "collection_name",
+            "original_name",
+            "name_pt_br",
+        ]
 
     def get_collection_slug(self, obj):
         try:
@@ -37,6 +47,12 @@ class NFTItemSerializer(serializers.ModelSerializer):
             return obj.collection.name if obj.collection else None
         except Exception:
             return None
+
+    def get_name(self, obj):
+        try:
+            return obj.name_pt_br or obj.name
+        except Exception:
+            return obj.name
 
     def _coerce_decimal(self, value: Any) -> Any:
         if value is None or isinstance(value, Decimal):

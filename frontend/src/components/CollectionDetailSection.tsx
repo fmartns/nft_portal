@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CollectionBanner } from './CollectionBanner';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -92,26 +92,100 @@ export function CollectionDetailSection({ collectionId, onBack }: CollectionDeta
   const [collection, setCollection] = useState<NftCollection | null>(null);
   const [items, setItems] = useState<NFTItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [serverCount, setServerCount] = useState<number>(0);
+  const [page, setPage] = useState<number>(1);
+  const [hasMore, setHasMore] = useState<boolean>(false);
+  const [loadingMore, setLoadingMore] = useState<boolean>(false);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Load collection detail and items
+  // Load collection detail (only when slug changes)
   useEffect(() => {
     let mounted = true;
-    setLoading(true);
-    Promise.all([
-      fetchCollectionDetail(collectionId),
-      fetchNFTItems({ collection_slug: collectionId, page_size: 100, ordering: 'name' })
-    ]).then(([col, list]) => {
-      if (!mounted) return;
-      setCollection(col);
-      setItems(list.results || []);
-      setError(null);
-    }).catch((e: any) => {
-      if (!mounted) return;
-      setError(e?.message || 'Falha ao carregar a coleção');
-    }).finally(() => mounted && setLoading(false));
+    setCollection(null);
+    fetchCollectionDetail(collectionId)
+      .then((col) => { if (mounted) setCollection(col); })
+      .catch(() => {})
     return () => { mounted = false; };
   }, [collectionId]);
+
+  // Build API params from current filters
+  const mapOrdering = (s: string) => {
+    switch (s) {
+      case 'price_low': return 'last_price_brl';
+      case 'price_high': return '-last_price_brl';
+      case 'name': return 'name';
+      case 'rarity': return 'rarity';
+      default: return 'name';
+    }
+  };
+
+  const buildParams = (pageNum: number) => ({
+    collection_slug: collectionId,
+    page: pageNum,
+    page_size: 50,
+    ordering: mapOrdering(sortBy),
+    search: searchQuery || undefined,
+    rarity: filterRarity !== 'all' ? filterRarity : undefined,
+    item_type: selectedItemType !== 'all' ? selectedItemType : undefined,
+    item_sub_type: selectedItemSubType !== 'all' ? selectedItemSubType : undefined,
+    material: selectedMaterial !== 'all' ? selectedMaterial : undefined,
+    source: selectedSource !== 'all' ? selectedSource : undefined,
+    is_crafted_item: showCraftedOnly ? true : undefined,
+    is_craft_material: showCraftMaterialsOnly ? true : undefined,
+    min_price_brl: priceRange.min ? Number(priceRange.min) : undefined,
+    max_price_brl: priceRange.max ? Number(priceRange.max) : undefined,
+  });
+
+  // Debounced fetch of first page whenever filters/search/order change
+  useEffect(() => {
+    let mounted = true;
+    const t = setTimeout(() => {
+      setLoading(true);
+      setItems([]);
+      setServerCount(0);
+      setPage(1);
+      setHasMore(false);
+      fetchNFTItems(buildParams(1))
+        .then((list) => {
+          if (!mounted) return;
+          setItems(list.results || []);
+          setServerCount(list.count || 0);
+          setHasMore(Boolean(list.next));
+          setError(null);
+        })
+        .catch((e: any) => {
+          if (!mounted) return;
+          setError(e?.message || 'Falha ao carregar itens');
+        })
+        .finally(() => mounted && setLoading(false));
+    }, 250);
+    return () => { mounted = false; clearTimeout(t); };
+  }, [collectionId, searchQuery, filterRarity, selectedItemType, selectedItemSubType, selectedMaterial, selectedSource, showCraftedOnly, showCraftMaterialsOnly, priceRange.min, priceRange.max, sortBy]);
+
+  // Infinite scroll: load next pages when sentinel appears (with current filters)
+  useEffect(() => {
+    if (!hasMore || loading || loadingMore) return;
+    const el = loadMoreRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver((entries) => {
+      const first = entries[0];
+      if (first && first.isIntersecting) {
+        // Load next page
+        setLoadingMore(true);
+        const nextPage = page + 1;
+        fetchNFTItems(buildParams(nextPage))
+          .then((res) => {
+            setItems(prev => [...prev, ...(res.results || [])]);
+            setPage(nextPage);
+            setHasMore(Boolean(res.next));
+          })
+          .finally(() => setLoadingMore(false));
+      }
+    }, { rootMargin: '200px' });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMore, loading, loadingMore, page, collectionId]);
 
   if (loading) {
     return (
@@ -135,44 +209,11 @@ export function CollectionDetailSection({ collectionId, onBack }: CollectionDeta
     );
   }
 
-  // Filter items from API
-  let filteredItems = items.filter((item: any) => {
-    const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (item.product_code && item.product_code.toLowerCase().includes(searchQuery.toLowerCase()));
-    const matchesRarity = filterRarity === 'all' || item.rarity === filterRarity;
-    const matchesItemType = selectedItemType === 'all' || item.item_type === selectedItemType;
-    const matchesItemSubType = selectedItemSubType === 'all' || item.item_sub_type === selectedItemSubType;
-    const matchesMaterial = selectedMaterial === 'all' || item.material === selectedMaterial;
-    const matchesSource = selectedSource === 'all' || item.source === selectedSource;
-    const matchesCrafted = !showCraftedOnly || item.is_crafted_item;
-    const matchesCraftMaterial = !showCraftMaterialsOnly || item.is_craft_material;
-    const matchesSelection = !showSelectedOnly || selectedItems.includes(item.id);
-    
-    const itemPrice = Number(item.last_price_brl || 0);
-    const matchesMinPrice = !priceRange.min || itemPrice >= parseFloat(priceRange.min);
-    const matchesMaxPrice = !priceRange.max || itemPrice <= parseFloat(priceRange.max);
-    
-    return matchesSearch && matchesRarity && matchesItemType && matchesItemSubType &&
-           matchesMaterial && matchesSource && matchesCrafted && matchesCraftMaterial &&
-           matchesSelection && matchesMinPrice && matchesMaxPrice;
-  });
-
-  // Sort items
-  filteredItems = filteredItems.sort((a: any, b: any) => {
-    switch (sortBy) {
-      case 'price_low':
-        return a.last_price_brl - b.last_price_brl;
-      case 'price_high':
-        return b.last_price_brl - a.last_price_brl;
-      case 'name':
-        return a.name.localeCompare(b.name);
-      case 'rarity':
-        const rarityOrder = ['comum', 'incomum', 'raro', 'epico', 'lendario', 'ultra-raro'];
-        return rarityOrder.indexOf(b.rarity) - rarityOrder.indexOf(a.rarity);
-      default:
-        return 0;
-    }
-  });
+  // Items come pre-filtered and pre-ordered from API; optionally filter by selection-only toggle
+  let filteredItems = items;
+  if (showSelectedOnly) {
+    filteredItems = filteredItems.filter((item: any) => selectedItems.includes(String(item.id)));
+  }
 
   const handleItemSelect = (itemId: string) => {
     setSelectedItems(prev => 
@@ -186,7 +227,7 @@ export function CollectionDetailSection({ collectionId, onBack }: CollectionDeta
     if (selectedItems.length === filteredItems.length) {
       setSelectedItems([]);
     } else {
-      setSelectedItems(filteredItems.map((item: any) => item.id));
+      setSelectedItems(filteredItems.map((item: any) => String(item.id)));
     }
   };
 
@@ -197,7 +238,7 @@ export function CollectionDetailSection({ collectionId, onBack }: CollectionDeta
 
   const getTotalSelectedPrice = () => {
     return selectedItems.reduce((total, itemId) => {
-      const item = items.find((i: any) => i.id === itemId);
+      const item = items.find((i: any) => String(i.id) === itemId);
       const val = Number(item?.last_price_brl || 0);
       return total + val;
     }, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 });
@@ -507,10 +548,12 @@ export function CollectionDetailSection({ collectionId, onBack }: CollectionDeta
 
                     <div className="space-y-2">
                       <Button 
-                        className="w-full bg-[#FFE000] hover:bg-[#FFD700] text-black border-0"
+                        className="w-full bg-muted text-muted-foreground cursor-default"
+                        disabled
+                        title="Filtros aplicados automaticamente"
                       >
                         <Filter className="w-4 h-4 mr-2" />
-                        Aplicar Filtros
+                        Filtros aplicados automaticamente
                       </Button>
                       <Button 
                         variant="outline"
@@ -531,7 +574,7 @@ export function CollectionDetailSection({ collectionId, onBack }: CollectionDeta
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
                 <div className="flex items-center space-x-4">
                   <span className="text-sm text-muted-foreground">
-                    {filteredItems.length} items encontrados
+                    {items.length} de {serverCount} itens
                   </span>
                   {filterRarity !== 'all' && (
                     <Badge variant="outline" className="border-[#FFE000]/30 text-[#FFE000]">
@@ -623,6 +666,16 @@ export function CollectionDetailSection({ collectionId, onBack }: CollectionDeta
                   </Button>
                 </Card>
               )}
+
+              {/* Infinite loader sentinel */}
+              <div ref={loadMoreRef} className="h-12 flex items-center justify-center mt-6">
+                {loadingMore && (
+                  <span className="text-sm text-muted-foreground">Carregando mais itens...</span>
+                )}
+                {!hasMore && items.length > 0 && (
+                  <span className="text-sm text-muted-foreground">Todos os itens carregados</span>
+                )}
+              </div>
             </div>
           </div>
         </div>

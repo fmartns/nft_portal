@@ -124,7 +124,8 @@ class NFTItemListAPI(generics.ListAPIView):
         drf_filters.SearchFilter,
         drf_filters.OrderingFilter,
     ]
-    search_fields = ["name", "product_code"]
+    # Include both English (name) and Portuguese (name_pt_br) for search
+    search_fields = ["name", "name_pt_br", "product_code"]
     ordering_fields = [
         "name",
         "rarity",
