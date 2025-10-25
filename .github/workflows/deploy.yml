@@ -95,22 +95,32 @@ jobs:
           
           echo "=== Iniciando deploy da versão $TAG ==="
           
+          # Set environment variables
+          export REGISTRY="$REGISTRY"
+          export IMAGE_NAME="$IMAGE_NAME"
+          export TAG="$TAG"
+          
+          echo "Variáveis definidas:"
+          echo "REGISTRY: \$REGISTRY"
+          echo "IMAGE_NAME: \$IMAGE_NAME"
+          echo "TAG: \$TAG"
+          
           # Login to GitHub Container Registry
-          echo "${{ secrets.GITHUB_TOKEN }}" | sudo docker login --username ${{ github.actor }} --password-stdin "$REGISTRY"
+          echo "${{ secrets.GITHUB_TOKEN }}" | sudo docker login --username ${{ github.actor }} --password-stdin "\$REGISTRY"
           
           # Remove old images to force pull of new ones
           echo "Removendo imagens antigas..."
-          sudo docker rmi "$REGISTRY/$IMAGE_NAME-web:latest" || true
-          sudo docker rmi "$REGISTRY/$IMAGE_NAME-frontend:latest" || true
+          sudo docker rmi "\$REGISTRY/\$IMAGE_NAME-web:latest" || true
+          sudo docker rmi "\$REGISTRY/\$IMAGE_NAME-frontend:latest" || true
           
           # Pull latest images with specific tag
           echo "Fazendo pull das novas imagens..."
-          sudo docker pull "$REGISTRY/$IMAGE_NAME-web:$TAG"
-          sudo docker pull "$REGISTRY/$IMAGE_NAME-frontend:$TAG"
+          sudo docker pull "\$REGISTRY/\$IMAGE_NAME-web:\$TAG"
+          sudo docker pull "\$REGISTRY/\$IMAGE_NAME-frontend:\$TAG"
           
           # Verify images were pulled
           echo "Verificando imagens baixadas:"
-          sudo docker images | grep "$IMAGE_NAME"
+          sudo docker images | grep "\$IMAGE_NAME"
           
           # Stop containers gracefully (preserving data volumes)
           sudo docker compose -f /opt/nft_portal/docker/docker-compose.prod.yml down || true
@@ -154,7 +164,8 @@ jobs:
           
           # Start fresh deployment with specific image tags
           echo "Iniciando containers com as novas imagens..."
-          sudo env REGISTRY="$REGISTRY" IMAGE_NAME="$IMAGE_NAME" TAG="$TAG" \
+          echo "Variáveis: REGISTRY=\$REGISTRY, IMAGE_NAME=\$IMAGE_NAME, TAG=\$TAG"
+          sudo env REGISTRY="\$REGISTRY" IMAGE_NAME="\$IMAGE_NAME" TAG="\$TAG" \
             docker compose -f docker/docker-compose.prod.yml up -d --force-recreate
           
           # Wait for containers to start
@@ -202,7 +213,7 @@ jobs:
           
           # Verify deployment version
           echo "=== Verificação final do deploy ==="
-          echo "Versão deployada: $TAG"
+          echo "Versão deployada: \$TAG"
           echo "Imagens em uso:"
           sudo docker ps --format "table {{.Names}}\t{{.Image}}" | grep -E "(web|frontend)"
           
