@@ -1,5 +1,15 @@
 import { getJson, HttpParams, postJson } from './client';
 
+// Banner API types
+export interface Banner {
+  id: number;
+  title: string;
+  image_url: string;
+  order: number;
+  created_at: string;
+  updated_at: string;
+}
+
 // Collections API types (mirror gallery serializers)
 export interface NftCollection {
   id: number;
@@ -96,4 +106,38 @@ export function recordNFTView(params: { product_code?: string; item_id?: number 
 // GET /nft/trending/?limit=4 to fetch most-accessed recent items
 export function fetchTrendingByAccess(params?: { limit?: number; days?: number }) {
   return getJson<{ results: NFTItem[] }>(`/nft/trending/`, params as HttpParams);
+}
+
+// Pricing configuration API types
+export interface PricingConfig {
+  global_markup_percent: number;
+  updated_at: string;
+}
+
+// GET /nft/pricing-config/ to fetch pricing configuration
+export function fetchPricingConfig(productCode?: string) {
+  const url = productCode 
+    ? `/nft/pricing-config/?product_code=${encodeURIComponent(productCode)}`
+    : `/nft/pricing-config/`;
+  return getJson<PricingConfig>(url);
+}
+
+// Banner API types and functions
+export interface Banner {
+  id: number;
+  title: string;
+  image_url: string;
+  order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// GET /api/banners/collection/ to fetch collection banner
+export function fetchCollectionBanner() {
+  return getJson<Banner>(`/api/banners/collection/`);
+}
+
+// GET /api/banners/ to fetch all active banners
+export function fetchBanners() {
+  return getJson<Banner[]>(`/api/banners/`);
 }

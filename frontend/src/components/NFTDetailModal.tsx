@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -8,6 +8,7 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 import { Heart, Share2, TrendingUp, TrendingDown, ShoppingCart, MessageCircle } from 'lucide-react';
 import { Card, CardContent } from './ui/card';
 import { Separator } from './ui/separator';
+import { ShareModal } from './ShareModal';
 
 interface NFTItem {
   id: string;
@@ -65,8 +66,33 @@ export function NFTDetailModal({ item, isOpen, onClose }: NFTDetailModalProps) {
   const [quantity, setQuantity] = useState(1);
   const [activeListingTab, setActiveListingTab] = useState('for-sale');
   const [isFavorite, setIsFavorite] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
-  if (!item) return null;
+  // Debug: Log state changes
+  console.log('NFTDetailModal render:', { 
+    isOpen, 
+    isShareModalOpen, 
+    itemName: item?.name,
+    hasItem: !!item 
+  });
+
+  // Debug: Monitor share modal state changes
+  useEffect(() => {
+    console.log('Share modal state changed:', isShareModalOpen);
+  }, [isShareModalOpen]);
+
+  if (!item) {
+    return (
+      <>
+        <ShareModal
+          isOpen={isShareModalOpen}
+          onClose={() => setIsShareModalOpen(false)}
+          collectionName=""
+          collectionUrl=""
+        />
+      </>
+    );
+  }
 
   const imageSrc = useMemo(() => {
     const raw = (item as any).image_url || (item as any).image || '';
@@ -86,6 +112,12 @@ export function NFTDetailModal({ item, isOpen, onClose }: NFTDetailModalProps) {
   const totalListings = mockListings.length;
   const lowestPrice = Math.min(...mockListings.map(l => l.price));
   const totalPrice = lowestPrice * quantity;
+  
+  // Generate item URL
+  const itemUrl = useMemo(() => {
+    const productCode = (item as any).product_code || (item as any).id || 'unknown';
+    return `${window.location.origin}/habbo-furni/${productCode}`;
+  }, [item]);
 
   type EBProps = { children: React.ReactNode };
   type EBState = { hasError: boolean; error?: any };
@@ -140,7 +172,15 @@ export function NFTDetailModal({ item, isOpen, onClose }: NFTDetailModalProps) {
                     >
                       <Heart className={`w-4 h-4 ${isFavorite ? 'fill-current' : ''}`} />
                     </Button>
-                    <Button size="sm" variant="outline" className="h-9 w-9 p-0">
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="h-9 w-9 p-0"
+                      onClick={() => {
+                        console.log('Share button clicked', { itemName: item.name, itemUrl });
+                        setIsShareModalOpen(true);
+                      }}
+                    >
                       <Share2 className="w-4 h-4" />
                     </Button>
                   </div>
@@ -276,7 +316,15 @@ export function NFTDetailModal({ item, isOpen, onClose }: NFTDetailModalProps) {
                     >
                       <Heart className={`w-4 h-4 ${isFavorite ? 'fill-current' : ''}`} />
                     </Button>
-                    <Button size="sm" variant="outline" className="h-9 w-9 p-0">
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="h-9 w-9 p-0"
+                      onClick={() => {
+                        console.log('Share button clicked', { itemName: item.name, itemUrl });
+                        setIsShareModalOpen(true);
+                      }}
+                    >
                       <Share2 className="w-4 h-4" />
                     </Button>
                   </div>
@@ -445,6 +493,22 @@ export function NFTDetailModal({ item, isOpen, onClose }: NFTDetailModalProps) {
         </div>
         </ErrorBoundary>
       </DialogContent>
+      
+      {/* Share Modal - Outside main dialog */}
+      {isShareModalOpen && (
+        <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center">
+          <div className="bg-[#0A0A0F] border-2 border-[#FFE000]/50 p-4 rounded-lg">
+            <h3 className="text-[#FFE000] mb-2">Compartilhar: {item.name}</h3>
+            <p className="text-white text-sm mb-4">URL: {itemUrl}</p>
+            <button 
+              onClick={() => setIsShareModalOpen(false)}
+              className="bg-[#FFE000] text-black px-4 py-2 rounded"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      )}
     </Dialog>
   );
 }

@@ -1,4 +1,3 @@
-import { TrendingUp, TrendingDown, BarChart3 } from 'lucide-react';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -18,8 +17,6 @@ interface NFTCardProps {
   lastSale?: string;
   isAuction?: boolean;
   timeLeft?: string;
-  priceChange?: number; // Percentual de mudança de preço (positivo = subiu, negativo = desceu)
-  volume7d?: string; // Volume dos últimos 7 dias
   onClick?: () => void;
 }
 
@@ -36,8 +33,6 @@ export function NFTCard({
   lastSale,
   isAuction = false,
   timeLeft,
-  priceChange = 0,
-  volume7d = "R$ 0",
   onClick
 }: NFTCardProps) {
   const resolveImageSrc = (val: string) => {
@@ -62,31 +57,6 @@ export function NFTCard({
           className="w-full h-44 sm:h-48 object-cover transition-transform duration-300 group-hover:scale-105"
         />
         
-        {/* Overlay com informações de mercado no hover */}
-        <div className="absolute inset-0 bg-black/60 transition-opacity duration-300 opacity-0 group-hover:opacity-100">
-          <div className="absolute bottom-3 left-3 space-y-1">
-            {/* Variação de preço */}
-            <div className="flex items-center space-x-1">
-              {priceChange >= 0 ? (
-                <TrendingUp className="w-4 h-4 text-green-400" />
-              ) : (
-                <TrendingDown className="w-4 h-4 text-red-400" />
-              )}
-              <span className={`text-sm font-medium ${
-                priceChange >= 0 ? 'text-green-400' : 'text-red-400'
-              }`}>
-                {priceChange >= 0 ? '+' : ''}{priceChange.toFixed(1)}%
-              </span>
-              <span className="text-xs text-white/70">7d</span>
-            </div>
-            
-            {/* Volume */}
-            <div className="flex items-center space-x-1 text-white/90">
-              <BarChart3 className="w-3 h-3" />
-              <span className="text-xs">Volume: {volume7d}</span>
-            </div>
-          </div>
-        </div>
 
         {/* Badge de leilão */}
         {isAuction && timeLeft && (

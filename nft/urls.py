@@ -3,9 +3,10 @@ from django.urls import path
 from .views import (
     NFTItemUpsertAPI,
     NFTItemListAPI,
-    RecordNFTAccessAPI,
     TrendingByAccessAPI,
+    PricingConfigAPI,
 )
+from .record_access_view import RecordNFTAccessAPI
 
 
 urlpatterns = [
@@ -19,4 +20,6 @@ urlpatterns = [
     path(
         "nft/trending/", TrendingByAccessAPI.as_view(), name="nft-items-trending-access"
     ),
+    # GET pricing configuration
+    path("nft/pricing-config/", PricingConfigAPI.as_view(), name="nft-pricing-config"),
 ]

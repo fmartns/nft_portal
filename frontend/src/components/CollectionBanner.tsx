@@ -2,7 +2,10 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
 import { ImageWithFallback } from './figma/ImageWithFallback';
-import { Star, Users, Eye, Heart, Share2, MoreHorizontal } from 'lucide-react';
+import { Star, Heart, Share2 } from 'lucide-react';
+import { BannerDisplay } from './BannerDisplay';
+import { ShareModal } from './ShareModal';
+import { useState } from 'react';
 
 interface CollectionBannerProps {
   name: string;
@@ -10,10 +13,6 @@ interface CollectionBannerProps {
   coverImage: string;
   logoImage: string;
   creator: string;
-  floorPrice: string;
-  totalItems: number;
-  owners: number;
-  totalVolume: string;
   isVerified?: boolean;
 }
 
@@ -23,27 +22,11 @@ export function CollectionBanner({
   coverImage,
   logoImage,
   creator,
-  floorPrice,
-  totalItems,
-  owners,
-  totalVolume,
   isVerified = true
 }: CollectionBannerProps) {
-  const formatCount = (value: number | string | null | undefined) => {
-    const n = Number(value ?? 0);
-    return n.toLocaleString('pt-BR');
-  };
-
-  const formatEth = (value: string | number | null | undefined) => {
-    const raw = String(value ?? '').toLowerCase().replace(/eth/g, '').trim();
-    const num = parseFloat(raw);
-    if (isNaN(num)) {
-      // fallback: if it already includes ETH or is non-numeric, just ensure single ETH suffix
-      const cleaned = String(value ?? '').replace(/(\s*eth)+/i, '').trim();
-      return `${cleaned} ETH`;
-    }
-    return `${num.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ETH`;
-  };
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  
+  const collectionUrl = `${window.location.origin}/${name.toLowerCase().replace(/\s+/g, '-')}`;
 
   return (
     <div className="relative w-full">
@@ -60,9 +43,6 @@ export function CollectionBanner({
         <div className="absolute top-4 right-4 flex items-center space-x-2">
           <Button size="sm" variant="outline" className="bg-black/20 backdrop-blur border-white/20 hover:bg-black/40">
             <Share2 className="w-4 h-4" />
-          </Button>
-          <Button size="sm" variant="outline" className="bg-black/20 backdrop-blur border-white/20 hover:bg-black/40">
-            <MoreHorizontal className="w-4 h-4" />
           </Button>
         </div>
       </div>
@@ -107,35 +87,9 @@ export function CollectionBanner({
                 </div>
               </div>
 
-              {/* Stats Grid */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <Card className="bg-card/50 backdrop-blur border-border/40">
-                  <CardContent className="p-3 sm:p-4 text-center">
-                    <div className="text-xl lg:text-2xl font-bold text-[#FFE000]">{formatCount(totalItems)}</div>
-                    <div className="text-xs sm:text-sm text-muted-foreground">Items</div>
-                  </CardContent>
-                </Card>
-                
-                <Card className="bg-card/50 backdrop-blur border-border/40">
-                  <CardContent className="p-3 sm:p-4 text-center">
-                    <div className="text-xl lg:text-2xl font-bold text-[#FFE000]">{formatCount(owners)}</div>
-                    <div className="text-xs sm:text-sm text-muted-foreground">Owners</div>
-                  </CardContent>
-                </Card>
-                
-                <Card className="bg-card/50 backdrop-blur border-border/40">
-                  <CardContent className="p-3 sm:p-4 text-center">
-                    <div className="text-xl lg:text-2xl font-bold text-[#FFE000]">{formatEth(floorPrice)}</div>
-                    <div className="text-xs sm:text-sm text-muted-foreground">Floor Price</div>
-                  </CardContent>
-                </Card>
-                
-                <Card className="bg-card/50 backdrop-blur border-border/40">
-                  <CardContent className="p-3 sm:p-4 text-center">
-                    <div className="text-xl lg:text-2xl font-bold text-[#FFE000]">{formatEth(totalVolume)}</div>
-                    <div className="text-xs sm:text-sm text-muted-foreground">Volume Total</div>
-                  </CardContent>
-                </Card>
+              {/* Banner Editável */}
+              <div className="mt-6">
+                <BannerDisplay />
               </div>
             </div>
 
@@ -145,14 +99,26 @@ export function CollectionBanner({
                 <Heart className="w-4 h-4 mr-2" />
                 Favoritar
               </Button>
-              <Button variant="outline" className="border-[#FFE000]/30 hover:bg-[#FFE000]/10">
-                <Eye className="w-4 h-4 mr-2" />
-                Assistir
+              <Button 
+                variant="outline" 
+                className="border-[#FFE000]/30 hover:bg-[#FFE000]/10"
+                onClick={() => setIsShareModalOpen(true)}
+              >
+                <Share2 className="w-4 h-4 mr-2" />
+                Compartilhar
               </Button>
             </div>
           </div>
         </div>
       </div>
+      
+      {/* Share Modal */}
+      <ShareModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        collectionName={name}
+        collectionUrl={collectionUrl}
+      />
     </div>
   );
 }

@@ -8,6 +8,7 @@ import { Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Compos
 import { upsertNFTByProductCode, fetchNFTByProductCode, recordNFTView } from '@/api/nft';
 import { Skeleton } from './ui/skeleton';
 import { Tooltip as UITooltip, TooltipContent as UITooltipContent, TooltipTrigger as UITooltipTrigger } from './ui/tooltip';
+import { ShareModal } from './ShareModal';
 
 interface NFTItemPageProps {
   slug: string;
@@ -25,6 +26,7 @@ export function NFTItemPage({ slug, productCode, onBack }: NFTItemPageProps) {
   const [item, setItem] = useState<ImmutableItemView | null>(null);
   const [listings, setListings] = useState<ImmutableListingView[]>([]);
   const [sevenDayAvgBRL, setSevenDayAvgBRL] = useState<number | null>(null);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -270,6 +272,11 @@ export function NFTItemPage({ slug, productCode, onBack }: NFTItemPageProps) {
     return `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
   }, [item?.name, productCode, displayPriceBRL]);
 
+  // Generate item URL for sharing
+  const itemUrl = useMemo(() => {
+    return `${window.location.origin}/${slug}/${productCode}`;
+  }, [slug, productCode]);
+
   return (
     <section className="bg-[#1a1a1a] text-white">
   <div className="max-w-[1800px] mx-auto flex flex-col gap-4 p-6">
@@ -448,7 +455,14 @@ export function NFTItemPage({ slug, productCode, onBack }: NFTItemPageProps) {
                   <div className="flex items-center gap-2">
                     {/* Histórico de vendas removido por solicitação */}
                     <Button size="sm" variant="outline" className="h-9 w-9 p-0"><Heart className="w-4 h-4" /></Button>
-                    <Button size="sm" variant="outline" className="h-9 w-9 p-0"><Share2 className="w-4 h-4" /></Button>
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      className="h-9 w-9 p-0"
+                      onClick={() => setIsShareModalOpen(true)}
+                    >
+                      <Share2 className="w-4 h-4" />
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -537,6 +551,14 @@ export function NFTItemPage({ slug, productCode, onBack }: NFTItemPageProps) {
           </div>
         ) : null}
       </div>
+      
+      {/* Share Modal */}
+      <ShareModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        collectionName={item?.name || productCode}
+        collectionUrl={itemUrl}
+      />
     </section>
   );
 }

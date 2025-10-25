@@ -1,6 +1,9 @@
 // Frontend helper to fetch Immutable orders for a productCode and convert prices to ETH/USD/BRL
 // Mirrors backend logic in nft/services.py
 
+import { getJson } from './client';
+import { fetchPricingConfig, PricingConfig } from './nft';
+
 export interface ImmutableOrder {
   buy?: { type?: string; data?: { type?: string; quantity?: string; quantity_with_fees?: string; decimals?: number; token_address?: string } };
   sell?: { data?: { properties?: Record<string, any>; token_address?: string; token_id?: string } };
@@ -99,7 +102,77 @@ export async function getRates(): Promise<Rates> {
   return { eth_usd, usd_brl };
 }
 
-function mapOrderToItem(order: ImmutableOrder | null, productCode: string, rates: Rates): ImmutableItemView {
+// Cache for pricing config to avoid frequent API calls
+let pricingConfigCache: { config: PricingConfig | null; timestamp: number } = {
+  config: null,
+  timestamp: 0
+};
+
+const PRICING_CONFIG_CACHE_TTL = 1 * 1000; // 1 second for testing
+
+// Function to clear pricing config cache (useful for testing)
+export function clearPricingConfigCache(): void {
+  pricingConfigCache = {
+    config: null,
+    timestamp: 0
+  };
+  console.log('Pricing config cache cleared');
+}
+
+// Debug function to test pricing config API directly
+export async function debugPricingConfig(): Promise<void> {
+  console.log('=== DEBUG PRICING CONFIG ===');
+  try {
+    const config = await fetchPricingConfig();
+    console.log('Direct API call result:', config);
+    console.log('Markup percent:', config.global_markup_percent);
+    console.log('Multiplier:', 1 + (config.global_markup_percent / 100));
+  } catch (error) {
+    console.error('API call failed:', error);
+  }
+  
+  console.log('Current cache:', pricingConfigCache);
+  console.log('Cache TTL:', PRICING_CONFIG_CACHE_TTL);
+  console.log('========================');
+}
+
+// Make debug function available globally for console testing
+if (typeof window !== 'undefined') {
+  (window as any).debugPricingConfig = debugPricingConfig;
+  (window as any).clearPricingConfigCache = clearPricingConfigCache;
+}
+
+export async function getPricingConfig(productCode?: string): Promise<PricingConfig> {
+  const now = Date.now();
+  
+  // Return cached config if still valid (cache key includes productCode)
+  const cacheKey = productCode || 'global';
+  if (pricingConfigCache.config && (now - pricingConfigCache.timestamp) < PRICING_CONFIG_CACHE_TTL) {
+    console.log('Using cached pricing config:', pricingConfigCache.config);
+    return pricingConfigCache.config;
+  }
+  
+  try {
+    console.log('Fetching fresh pricing config from API...', productCode ? `for ${productCode}` : 'global');
+    const config = await fetchPricingConfig(productCode);
+    console.log('Fresh pricing config received:', config);
+    pricingConfigCache = {
+      config,
+      timestamp: now
+    };
+    return config;
+  } catch (error) {
+    console.error('Failed to fetch pricing config, using fallback:', error);
+    // Fallback to default markup if API fails
+    const fallbackConfig: PricingConfig = {
+      global_markup_percent: 30.00,
+      updated_at: new Date().toISOString()
+    };
+    return fallbackConfig;
+  }
+}
+
+function mapOrderToItem(order: ImmutableOrder | null, productCode: string, rates: Rates, markupMultiplier: number = 1.3): ImmutableItemView {
   const props = (order?.sell?.data?.properties as Record<string, any>) || {};
   const name = props.name || productCode;
   const image_url = props.image_url || '';
@@ -136,16 +209,16 @@ function mapOrderToItem(order: ImmutableOrder | null, productCode: string, rates
   } else {
     // Unsupported token; leave zeros
   }
-  // Apply 30% markup across all prices
-  priceEth = +(priceEth * 1.3).toFixed(8);
-  priceUsd = +(priceUsd * 1.3).toFixed(2);
-  priceBrl = +(priceBrl * 1.3).toFixed(2);
+  // Apply configured markup across all prices
+  priceEth = +(priceEth * markupMultiplier).toFixed(8);
+  priceUsd = +(priceUsd * markupMultiplier).toFixed(2);
+  priceBrl = +(priceBrl * markupMultiplier).toFixed(2);
 
   // Sanity fallback: if ETH amount is meaningful but BRL looks implausibly small (e.g., cents),
   // recompute BRL using fallback rates so we never show R$ 0,xx for ~0.07 ETH.
   if (buyType === 'ETH' && ethRaw > 0.01 && priceBrl < 10) {
     const brlNoMarkup = ethRaw * FALLBACK_RATES.eth_usd * FALLBACK_RATES.usd_brl;
-    priceBrl = +(brlNoMarkup * 1.3).toFixed(2);
+    priceBrl = +(brlNoMarkup * markupMultiplier).toFixed(2);
   }
 
   return {
@@ -168,8 +241,17 @@ export async function fetchImmutableItem(productCode: string): Promise<Immutable
   // Fetch all pages and pick the best order across the full set
   const orders = await fetchAllOrders(productCode);
   const { order } = pickBestBidOrder(orders);
-  const rates = await getRates();
-  const mapped = mapOrderToItem(order, productCode, rates);
+  const [rates, pricingConfig] = await Promise.all([
+    getRates(),
+    getPricingConfig(productCode)
+  ]);
+  
+  // Get markup multiplier (e.g., 1.15 for 15% markup)
+  const markupMultiplier = 1 + (pricingConfig.global_markup_percent / 100);
+  console.log('fetchImmutableItem - Pricing config:', pricingConfig);
+  console.log('fetchImmutableItem - Markup multiplier:', markupMultiplier, '(markup:', pricingConfig.global_markup_percent + '%)');
+  
+  const mapped = mapOrderToItem(order, productCode, rates, markupMultiplier);
   return mapped;
 }
 
@@ -188,7 +270,16 @@ export interface ImmutableListingView {
 export async function fetchImmutableListings(productCode: string): Promise<ImmutableListingView[]> {
   // Fetch all pages using cursor to avoid divergences in totals
   const orders = await fetchAllOrders(productCode);
-  const rates = await getRates();
+  const [rates, pricingConfig] = await Promise.all([
+    getRates(),
+    getPricingConfig(productCode)
+  ]);
+  
+  // Get markup multiplier (e.g., 1.10 for 10% markup)
+  const markupMultiplier = 1 + (pricingConfig.global_markup_percent / 100);
+  console.log('Pricing config:', pricingConfig);
+  console.log('Markup multiplier:', markupMultiplier, '(markup:', pricingConfig.global_markup_percent + '%)');
+  
   // Rates fetched and applied silently
   const listings: ImmutableListingView[] = orders.map((o: any) => {
     const buyType = String(o?.buy?.type || o?.buy?.data?.type || '').toUpperCase();
@@ -208,14 +299,14 @@ export async function fetchImmutableListings(productCode: string): Promise<Immut
       eth = +(usd / rates.eth_usd).toFixed(8);
       brl = +(usd * rates.usd_brl).toFixed(2);
     }
-    // Apply 30% markup
-    eth = +(eth * 1.3).toFixed(8);
-    usd = +(usd * 1.3).toFixed(2);
-    brl = +(brl * 1.3).toFixed(2);
+    // Apply configured markup instead of hardcoded 30%
+    eth = +(eth * markupMultiplier).toFixed(8);
+    usd = +(usd * markupMultiplier).toFixed(2);
+    brl = +(brl * markupMultiplier).toFixed(2);
     // Sanity fallback for implausibly low BRL values on ETH orders
     if (buyType === 'ETH' && ethRaw > 0.01 && brl < 10) {
       const brlNoMarkup = ethRaw * 4713.59 * 5.42;
-      brl = +(brlNoMarkup * 1.3).toFixed(2);
+      brl = +(brlNoMarkup * markupMultiplier).toFixed(2);
     }
     const quantity = 1; // generally 1 per unique NFT
     const seller = o?.user || o?.seller || null;

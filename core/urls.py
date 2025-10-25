@@ -34,6 +34,7 @@ urlpatterns = [
     path("redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
     path("accounts/", include("accounts.urls")),
     path("collections/", include("gallery.urls")),
+    path("", include("banners.urls")),
     path("", include("nft.urls")),
     path("", include("health.urls")),
     path("", RedirectView.as_view(url="/docs/", permanent=False)),

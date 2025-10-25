@@ -182,46 +182,18 @@ class PricingConfigAPI(APIView):
 
     def get(self, request):
         try:
-            product_code = request.query_params.get("product_code")
-
-            # Se product_code for fornecido, buscar markup específico do item
-            if product_code:
-                try:
-                    item = NFTItem.objects.get(product_code=product_code)
-                    if item.markup_percent is not None:
-                        # Usar markup específico do item
-                        markup_percent = float(item.markup_percent)
-                        print(
-                            f"DEBUG: Using item-specific markup: {markup_percent}% for {product_code}"
-                        )
-                        return Response(
-                            {
-                                "global_markup_percent": markup_percent,
-                                "updated_at": item.updated_at.isoformat(),
-                            }
-                        )
-                except NFTItem.DoesNotExist:
-                    print(f"DEBUG: Item {product_code} not found, using global config")
-
-            # Buscar configuração global
             config = PricingConfig.objects.order_by("-updated_at").first()
-            print(f"DEBUG: Found global config: {config}")
-            if config:
-                print(f"DEBUG: Global config markup: {config.global_markup_percent}")
             if not config:
-                # Create default config with 30% markup if none exists
-                config = PricingConfig.objects.create(global_markup_percent=30.00)
-                print("DEBUG: Created default config with 30% markup")
+                # Return default if no config exists
+                config = PricingConfig(global_markup_percent=30.00)
 
             serializer = PricingConfigSerializer(config)
-            print(f"DEBUG: Serialized data: {serializer.data}")
             return Response(serializer.data)
-        except Exception as e:
-            print(f"DEBUG: Exception occurred: {e}")
-            # Fallback to default markup if any error occurs
-            fallback_config = PricingConfig(global_markup_percent=30.00)
-            serializer = PricingConfigSerializer(fallback_config)
-            return Response(serializer.data)
+        except Exception:
+            return Response(
+                {"error": "Erro ao buscar configuração de markup"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class TrendingByAccessAPI(APIView):

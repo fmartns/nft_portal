@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     # Local apps
     "accounts",
+    "banners",
     # Installed apps
     "rest_framework",
     "django_filters",
@@ -163,7 +164,10 @@ MEDIA_ROOT = BASE_DIR / "media"
 STORAGES = {
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
-    }
+    },
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
 }
 
 # Default primary key field type
@@ -290,6 +294,42 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_RESULT_EXPIRES = 3600
+
+# Configurações de Agendamento (Beat Schedule)
+CELERY_BEAT_SCHEDULE = {
+    # Rotina da madrugada - atualização de preços dos NFTs
+    "update-nft-prices-nightly": {
+        "task": "nft.tasks.update_all_nft_prices_nightly",
+        "schedule": 60.0 * 60.0 * 24.0,  # Executa a cada 24 horas
+        "options": {
+            "expires": 60 * 60 * 2,  # Expira em 2 horas se não executar
+        },
+    },
+    # Limpeza semanal de dados antigos
+    "cleanup-old-data": {
+        "task": "nft.tasks.cleanup_old_price_updates",
+        "schedule": 60.0 * 60.0 * 24.0 * 7.0,  # Executa a cada 7 dias
+        "options": {
+            "expires": 60 * 60 * 24,  # Expira em 24 horas se não executar
+        },
+    },
+}
+
+# Configuração para usar crontab para horário específico (1h da manhã)
+from celery.schedules import crontab  # noqa: E402
+
+CELERY_BEAT_SCHEDULE.update(
+    {
+        # Rotina da madrugada às 1h00
+        "update-nft-prices-at-1am": {
+            "task": "nft.tasks.update_all_nft_prices_nightly",
+            "schedule": crontab(hour=1, minute=0),  # Executa diariamente às 1h00
+            "options": {
+                "expires": 60 * 60 * 2,  # Expira em 2 horas se não executar
+            },
+        },
+    }
+)
 
 # Auth User Model
 AUTH_USER_MODEL = "accounts.User"

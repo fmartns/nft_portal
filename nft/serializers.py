@@ -3,7 +3,7 @@ from typing import Any
 
 from rest_framework import serializers
 
-from .models import NFTItem
+from .models import NFTItem, PricingConfig
 
 
 class FetchByProductCodeSerializer(serializers.Serializer):
@@ -81,3 +81,10 @@ class RecordAccessSerializer(serializers.Serializer):
         if not attrs.get("product_code") and not attrs.get("item_id"):
             raise serializers.ValidationError("Informe product_code ou item_id")
         return attrs
+
+
+class PricingConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PricingConfig
+        fields = ["global_markup_percent", "updated_at"]
+        read_only_fields = ["updated_at"]

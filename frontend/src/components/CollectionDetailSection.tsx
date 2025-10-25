@@ -298,10 +298,6 @@ export function CollectionDetailSection({ collectionId, onBack }: CollectionDeta
             coverImage={bannerCover}
             logoImage={bannerLogo}
             creator={collection.author}
-            floorPrice={collection.floor_price_eth}
-            totalItems={collection.items_count}
-            owners={collection.owners_count}
-            totalVolume={collection.total_volume_eth}
             isVerified={false}
           />
         );

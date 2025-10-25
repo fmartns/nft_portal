@@ -85,7 +85,7 @@ export function TrendingSection() {
             Items em <span className="text-[#FFE000]">Tendência</span>
           </h2>
           <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-            Descubra os items mais populares e valiosos do universo Habbo
+            Descubra os itens mais populares e valiosos do universo Habbo
           </p>
         </div>
 
