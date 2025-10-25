@@ -5,38 +5,26 @@ on:
     branches: [ "main" ]
 
 env:
-  AWS_REGION: sa-east-1
-  ECR_REPOSITORY: nft-portal
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
+      packages: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure AWS
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Create ECR repos
-        run: |
-          for repo in "${ECR_REPOSITORY}-web" "${ECR_REPOSITORY}-frontend"; do
-            if ! aws ecr describe-repositories --repository-names "$repo" >/dev/null 2>&1; then
-              aws ecr create-repository --repository-name "$repo"
-            fi
-          done
-
-      - name: Login to ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify build files
         run: |
@@ -56,8 +44,8 @@ jobs:
           file: docker/Dockerfile
           push: true
           tags: |
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-web:${{ github.sha }}
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-web:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-web:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-web:latest
           platforms: linux/amd64
 
       - name: Build and push frontend
@@ -70,15 +58,15 @@ jobs:
           build-args: |
             VITE_API_BASE_URL=https://api.nftmarketplace.com.br
           tags: |
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:${{ github.sha }}
-            ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:latest
           platforms: linux/amd64
 
       - name: Verify images were built
         run: |
           echo "Verificando se as imagens foram construídas corretamente..."
-          aws ecr describe-images --repository-name "${{ env.ECR_REPOSITORY }}-web" --image-ids imageTag="${{ github.sha }}"
-          aws ecr describe-images --repository-name "${{ env.ECR_REPOSITORY }}-frontend" --image-ids imageTag="${{ github.sha }}"
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-web:${{ github.sha }}
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:${{ github.sha }}
           echo "Imagens verificadas com sucesso!"
 
       - name: Deploy to EC2
@@ -86,8 +74,8 @@ jobs:
           EC2_HOST: 15.228.220.167
           EC2_USER: ${{ secrets.EC2_USER }}
           EC2_KEY: ${{ secrets.EC2_SSH_KEY }}
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ env.ECR_REPOSITORY }}
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
           TAG: ${{ github.sha }}
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
@@ -96,9 +84,6 @@ jobs:
           FLOWER_BASIC_AUTH: ${{ secrets.FLOWER_BASIC_AUTH }}
           LE_EMAIL: ${{ secrets.LE_EMAIL }}
         run: |
-          # Get ECR password
-          ECR_PASSWORD=$(aws ecr get-login-password --region $AWS_REGION)
-          
           # Setup SSH
           mkdir -p ~/.ssh
           echo "$EC2_KEY" > ~/.ssh/ec2_key
@@ -110,22 +95,22 @@ jobs:
           
           echo "=== Iniciando deploy da versão $TAG ==="
           
-          # Login to ECR
-          echo "$ECR_PASSWORD" | sudo docker login --username AWS --password-stdin "$ECR_REGISTRY"
+          # Login to GitHub Container Registry
+          echo "${{ secrets.GITHUB_TOKEN }}" | sudo docker login --username ${{ github.actor }} --password-stdin "$REGISTRY"
           
           # Remove old images to force pull of new ones
           echo "Removendo imagens antigas..."
-          sudo docker rmi "$ECR_REGISTRY/$ECR_REPOSITORY-web:latest" || true
-          sudo docker rmi "$ECR_REGISTRY/$ECR_REPOSITORY-frontend:latest" || true
+          sudo docker rmi "$REGISTRY/$IMAGE_NAME-web:latest" || true
+          sudo docker rmi "$REGISTRY/$IMAGE_NAME-frontend:latest" || true
           
           # Pull latest images with specific tag
           echo "Fazendo pull das novas imagens..."
-          sudo docker pull "$ECR_REGISTRY/$ECR_REPOSITORY-web:$TAG"
-          sudo docker pull "$ECR_REGISTRY/$ECR_REPOSITORY-frontend:$TAG"
+          sudo docker pull "$REGISTRY/$IMAGE_NAME-web:$TAG"
+          sudo docker pull "$REGISTRY/$IMAGE_NAME-frontend:$TAG"
           
           # Verify images were pulled
           echo "Verificando imagens baixadas:"
-          sudo docker images | grep "$ECR_REPOSITORY"
+          sudo docker images | grep "$IMAGE_NAME"
           
           # Stop containers gracefully (preserving data volumes)
           sudo docker compose -f /opt/nft_portal/docker/docker-compose.prod.yml down || true
@@ -169,7 +154,7 @@ jobs:
           
           # Start fresh deployment with specific image tags
           echo "Iniciando containers com as novas imagens..."
-          sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
+          sudo env REGISTRY="$REGISTRY" IMAGE_NAME="$IMAGE_NAME" TAG="$TAG" \
             docker compose -f docker/docker-compose.prod.yml up -d --force-recreate
           
           # Wait for containers to start

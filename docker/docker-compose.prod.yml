@@ -25,7 +25,7 @@ services:
       retries: 20
 
   web:
-    image: ${ECR_REGISTRY}/${ECR_REPOSITORY}-web:${TAG:-latest}
+    image: ${REGISTRY}/${IMAGE_NAME}-web:${TAG:-latest}
     env_file:
       - ../.env
     depends_on:
@@ -57,7 +57,7 @@ services:
     restart: unless-stopped
 
   celery_worker:
-    image: ${ECR_REGISTRY}/${ECR_REPOSITORY}-web:${TAG:-latest}
+    image: ${REGISTRY}/${IMAGE_NAME}-web:${TAG:-latest}
     env_file:
       - ../.env
     depends_on:
@@ -75,7 +75,7 @@ services:
     restart: unless-stopped
 
   celery_beat:
-    image: ${ECR_REGISTRY}/${ECR_REPOSITORY}-web:${TAG:-latest}
+    image: ${REGISTRY}/${IMAGE_NAME}-web:${TAG:-latest}
     env_file:
       - ../.env
     depends_on:
@@ -106,7 +106,7 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: ${ECR_REGISTRY}/${ECR_REPOSITORY}-frontend:${TAG:-latest}
+    image: ${REGISTRY}/${IMAGE_NAME}-frontend:${TAG:-latest}
     env_file:
       - ../.env
     volumes:
