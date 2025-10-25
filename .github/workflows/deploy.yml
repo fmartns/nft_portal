@@ -38,15 +38,26 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Verify build files
+        run: |
+          echo "Verificando arquivos necessários para o build..."
+          ls -la docker/Dockerfile
+          ls -la frontend/Dockerfile
+          ls -la docker/docker-compose.prod.yml
+          echo "Arquivos verificados!"
+
       - name: Build and push backend
         uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile
           push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: |
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-web:${{ github.sha }}
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-web:latest
+          platforms: linux/amd64
 
       - name: Build and push frontend
         uses: docker/build-push-action@v6
@@ -55,11 +66,21 @@ jobs:
           file: frontend/Dockerfile
           target: prod
           push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           build-args: |
             VITE_API_BASE_URL=https://api.nftmarketplace.com.br
           tags: |
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:${{ github.sha }}
             ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}-frontend:latest
+          platforms: linux/amd64
+
+      - name: Verify images were built
+        run: |
+          echo "Verificando se as imagens foram construídas corretamente..."
+          aws ecr describe-images --repository-name "${{ env.ECR_REPOSITORY }}-web" --image-ids imageTag="${{ github.sha }}"
+          aws ecr describe-images --repository-name "${{ env.ECR_REPOSITORY }}-frontend" --image-ids imageTag="${{ github.sha }}"
+          echo "Imagens verificadas com sucesso!"
 
       - name: Deploy to EC2
         env:
@@ -88,12 +109,24 @@ jobs:
           ssh -i ~/.ssh/ec2_key -o StrictHostKeyChecking=no "$EC2_USER@$EC2_HOST" << EOF
           set -e
           
+          echo "=== Iniciando deploy da versão $TAG ==="
+          
           # Login to ECR
           echo "$ECR_PASSWORD" | sudo docker login --username AWS --password-stdin "$ECR_REGISTRY"
           
-          # Pull latest images
+          # Remove old images to force pull of new ones
+          echo "Removendo imagens antigas..."
+          sudo docker rmi "$ECR_REGISTRY/$ECR_REPOSITORY-web:latest" || true
+          sudo docker rmi "$ECR_REGISTRY/$ECR_REPOSITORY-frontend:latest" || true
+          
+          # Pull latest images with specific tag
+          echo "Fazendo pull das novas imagens..."
           sudo docker pull "$ECR_REGISTRY/$ECR_REPOSITORY-web:$TAG"
           sudo docker pull "$ECR_REGISTRY/$ECR_REPOSITORY-frontend:$TAG"
+          
+          # Verify images were pulled
+          echo "Verificando imagens baixadas:"
+          sudo docker images | grep "$ECR_REPOSITORY"
           
           # Stop containers gracefully (preserving data volumes)
           sudo docker compose -f /opt/nft_portal/docker/docker-compose.prod.yml down || true
@@ -135,12 +168,23 @@ jobs:
           # Remove orphaned containers
           sudo docker container ls -a --filter "name=docker-" --format "{{.Names}}" | xargs -r sudo docker rm -f || true
           
-          # Start fresh deployment
+          # Start fresh deployment with specific image tags
+          echo "Iniciando containers com as novas imagens..."
           sudo env ECR_REGISTRY="$ECR_REGISTRY" ECR_REPOSITORY="$ECR_REPOSITORY" TAG="$TAG" \
-            docker compose -f docker/docker-compose.prod.yml up -d
+            docker compose -f docker/docker-compose.prod.yml up -d --force-recreate
           
           # Wait for containers to start
           sleep 30
+          
+          # Verify containers are running with correct images
+          echo "Verificando containers em execução:"
+          sudo docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"
+          
+          # Check if containers are healthy
+          echo "Verificando saúde dos containers..."
+          sudo docker ps --filter "status=running" --format "{{.Names}}" | while read container; do
+            echo "Container $container está rodando"
+          done
           
           # Configure SSL automatically
           echo "Configurando SSL automaticamente..."
@@ -172,6 +216,13 @@ jobs:
           curl -I https://nftmarketplace.com.br || echo "HTTPS frontend não funciona"
           curl -I https://api.nftmarketplace.com.br || echo "HTTPS API não funciona"
           
+          # Verify deployment version
+          echo "=== Verificação final do deploy ==="
+          echo "Versão deployada: $TAG"
+          echo "Imagens em uso:"
+          sudo docker ps --format "table {{.Names}}\t{{.Image}}" | grep -E "(web|frontend)"
+          
           # Final status
+          echo "Status final dos containers:"
           sudo docker ps
           EOF
