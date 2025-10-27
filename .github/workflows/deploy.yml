@@ -26,14 +26,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Verify build files
-        run: |
-          echo "Verificando arquivos necessários para o build..."
-          ls -la docker/Dockerfile
-          ls -la frontend/Dockerfile
-          ls -la docker/docker-compose.prod.yml
-          echo "Arquivos verificados!"
-
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -43,14 +35,6 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Check frontend build
-        run: |
-          echo "Verificando se o frontend pode ser buildado..."
-          cd frontend
-          npm ci --no-audit --no-fund
-          npm run build
-          echo "Frontend build testado com sucesso!"
 
       - name: Build and push backend
         uses: docker/build-push-action@v6
@@ -77,16 +61,9 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:latest
           platforms: linux/amd64
 
-      - name: Verify images were built
-        run: |
-          echo "Verificando se as imagens foram construídas corretamente..."
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-web:${{ github.sha }} || echo "Erro ao fazer pull da imagem web"
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend:${{ github.sha }} || echo "Erro ao fazer pull da imagem frontend"
-          echo "Verificação concluída!"
-
       - name: Deploy to EC2
         env:
-          EC2_HOST: 15.228.220.167
+          EC2_HOST: ${{ secrets.EC2_HOST }}
           EC2_USER: ${{ secrets.EC2_USER }}
           EC2_KEY: ${{ secrets.EC2_SSH_KEY }}
           REGISTRY: ${{ env.REGISTRY }}
@@ -104,135 +81,134 @@ jobs:
           echo "$EC2_KEY" > ~/.ssh/ec2_key
           chmod 600 ~/.ssh/ec2_key
           
-          # Deploy
-          ssh -i ~/.ssh/ec2_key -o StrictHostKeyChecking=no "$EC2_USER@$EC2_HOST" << EOF
+          # Deploy script
+          ssh -i ~/.ssh/ec2_key -o StrictHostKeyChecking=no "$EC2_USER@$EC2_HOST" bash -s << 'DEPLOYSCRIPT'
           set -e
           
-          echo "=== Iniciando deploy da versão $TAG ==="
+          echo "=== Iniciando deploy da versão ${{ github.sha }} ==="
           
-          # Set environment variables
-          export REGISTRY="$REGISTRY"
-          export IMAGE_NAME="$IMAGE_NAME"
-          export TAG="$TAG"
-          
-          echo "Variáveis definidas:"
-          echo "REGISTRY: \$REGISTRY"
-          echo "IMAGE_NAME: \$IMAGE_NAME"
-          echo "TAG: \$TAG"
+          # Export environment variables
+          export REGISTRY="${{ env.REGISTRY }}"
+          export IMAGE_NAME="${{ env.IMAGE_NAME }}"
+          export TAG="${{ github.sha }}"
           
           # Login to GitHub Container Registry
-          echo "${{ secrets.GITHUB_TOKEN }}" | sudo docker login --username ${{ github.actor }} --password-stdin "\$REGISTRY"
+          echo "Autenticando com GitHub Container Registry..."
+          echo "${{ secrets.GITHUB_TOKEN }}" | sudo docker login --username ${{ github.actor }} --password-stdin ${{ env.REGISTRY }}
           
-          # Remove old images to force pull of new ones
-          echo "Removendo imagens antigas..."
-          sudo docker rmi "\$REGISTRY/\$IMAGE_NAME-web:latest" || true
-          sudo docker rmi "\$REGISTRY/\$IMAGE_NAME-frontend:latest" || true
+          # Navigate to project directory
+          cd /opt/nft_portal
           
-          # Pull latest images with specific tag
+          # Stop existing containers
+          echo "Parando containers existentes..."
+          sudo docker compose -f docker/docker-compose.prod.yml down || true
+          
+          # Pull latest images
           echo "Fazendo pull das novas imagens..."
-          sudo docker pull "\$REGISTRY/\$IMAGE_NAME-web:\$TAG"
-          sudo docker pull "\$REGISTRY/\$IMAGE_NAME-frontend:\$TAG"
+          sudo docker pull ${REGISTRY}/${IMAGE_NAME}-web:${TAG}
+          sudo docker pull ${REGISTRY}/${IMAGE_NAME}-frontend:${TAG}
           
-          # Verify images were pulled
-          echo "Verificando imagens baixadas:"
-          sudo docker images | grep "\$IMAGE_NAME"
+          # Tag as latest
+          echo "Marcando imagens como latest..."
+          sudo docker tag ${REGISTRY}/${IMAGE_NAME}-web:${TAG} ${REGISTRY}/${IMAGE_NAME}-web:latest
+          sudo docker tag ${REGISTRY}/${IMAGE_NAME}-frontend:${TAG} ${REGISTRY}/${IMAGE_NAME}-frontend:latest
           
-          # Stop containers gracefully (preserving data volumes)
-          sudo docker compose -f /opt/nft_portal/docker/docker-compose.prod.yml down || true
-          
-          # Only remove containers that don't have persistent data
-          sudo docker rm -f docker-certbot-1 docker-web-1 docker-frontend-1 docker-nginx-1 docker-celery_worker-1 docker-celery_beat-1 docker-flower-1 || true
-          
-          # Keep db and redis containers running to preserve data
-          sudo docker start docker-db-1 docker-redis-1 || true
-          
-          # Update environment
-          sudo tee /opt/nft_portal/.env >/dev/null << ENVEOF
-          SECRET_KEY=$SECRET_KEY
+          # Update .env file
+          echo "Atualizando arquivo .env..."
+          sudo tee .env >/dev/null << ENVEOF
+          SECRET_KEY=${{ secrets.SECRET_KEY }}
           DEBUG=False
           ALLOWED_HOSTS=nftmarketplace.com.br,www.nftmarketplace.com.br,api.nftmarketplace.com.br
           USE_POSTGRES=1
           POSTGRES_HOST=db
           POSTGRES_PORT=5432
-          POSTGRES_DB=$POSTGRES_DB
-          POSTGRES_USER=$POSTGRES_USER
-          POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+          POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+          POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
           CELERY_BROKER_URL=redis://redis:6379/0
           CELERY_RESULT_BACKEND=redis://redis:6379/0
           FRONTEND_ORIGINS=https://nftmarketplace.com.br,https://www.nftmarketplace.com.br
           API_ORIGIN=https://api.nftmarketplace.com.br
-          FLOWER_BASIC_AUTH=$FLOWER_BASIC_AUTH
-          LE_EMAIL=$LE_EMAIL
+          FLOWER_BASIC_AUTH=${{ secrets.FLOWER_BASIC_AUTH }}
+          LE_EMAIL=${{ secrets.LE_EMAIL }}
           ENVEOF
           
-          # Clean deployment strategy
-          cd /opt/nft_portal
+          # Check if certificates already exist (check multiple possible locations)
+          CERT_EXISTS=false
+          if [ -f "/var/lib/docker/volumes/docker_letsencrypt/_data/live/nftmarketplace.com.br/fullchain.pem" ]; then
+            CERT_EXISTS=true
+          elif sudo docker volume ls | grep -q letsencrypt; then
+            # Certificates exist in volume
+            CERT_EXISTS=true
+          fi
           
-          # Stop all containers gracefully
-          sudo docker compose -f docker/docker-compose.prod.yml down || true
+          if [ "$CERT_EXISTS" = "true" ]; then
+            echo "Certificados SSL já existem, usando configuração HTTPS..."
+            # Use HTTPS config
+            sudo cp docker/nginx/nginx.ssl.conf docker/nginx/nginx.conf
+          else
+            echo "Certificados SSL não encontrados, iniciando com HTTP para obter certificados..."
+            # Start with HTTP config
+            sudo cp docker/nginx/nginx.conf.orig docker/nginx/nginx.conf
+          fi
           
-          # Remove all containers with conflicting names (force remove)
-          sudo docker container prune -f
+          # Start services with environment variables
+          echo "Iniciando containers..."
+          sudo env REGISTRY="${REGISTRY}" IMAGE_NAME="${IMAGE_NAME}" TAG="${TAG}" \
+            docker compose -f docker/docker-compose.prod.yml up -d
           
-          # Remove orphaned containers
-          sudo docker container ls -a --filter "name=docker-" --format "{{.Names}}" | xargs -r sudo docker rm -f || true
+          # Wait for services to be ready
+          echo "Aguardando serviços iniciarem..."
+          sleep 40
           
-          # Start fresh deployment with specific image tags
-          echo "Iniciando containers com as novas imagens..."
-          echo "Variáveis: REGISTRY=\$REGISTRY, IMAGE_NAME=\$IMAGE_NAME, TAG=\$TAG"
-          sudo env REGISTRY="\$REGISTRY" IMAGE_NAME="\$IMAGE_NAME" TAG="\$TAG" \
-            docker compose -f docker/docker-compose.prod.yml up -d --force-recreate
+          # Request SSL certificates if they don't exist
+          if [ "$CERT_EXISTS" = "false" ]; then
+            echo "Solicitando certificados SSL da Let's Encrypt..."
+            
+            # Wait a bit more for nginx to be ready
+            sleep 10
+            
+            # Request certificates
+            if sudo docker exec docker-certbot-1 certbot certonly \
+              --webroot \
+              --webroot-path=/var/www/certbot \
+              --email ${{ secrets.LE_EMAIL }} \
+              --agree-tos \
+              --no-eff-email \
+              --non-interactive \
+              -d nftmarketplace.com.br \
+              -d www.nftmarketplace.com.br \
+              -d api.nftmarketplace.com.br; then
+              
+              echo "Certificados SSL obtidos com sucesso!"
+              
+              # Switch to HTTPS configuration
+              echo "Alternando para configuração HTTPS..."
+              sudo cp docker/nginx/nginx.ssl.conf docker/nginx/nginx.conf
+              
+              # Restart nginx and certbot to apply HTTPS config
+              echo "Reiniciando containers com configuração HTTPS..."
+              sudo docker compose -f docker/docker-compose.prod.yml stop nginx certbot
+              sudo docker compose -f docker/docker-compose.prod.yml up -d nginx certbot
+              sleep 10
+            else
+              echo "Aviso: Não foi possível obter certificados SSL nesta execução."
+            fi
+          fi
           
-          # Wait for containers to start
-          sleep 30
-          
-          # Verify containers are running with correct images
-          echo "Verificando containers em execução:"
+          # Verify deployment
+          echo "=== Verificando deploy ==="
           sudo docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"
           
-          # Check if containers are healthy
-          echo "Verificando saúde dos containers..."
-          sudo docker ps --filter "status=running" --format "{{.Names}}" | while read container; do
-            echo "Container $container está rodando"
-          done
+          # Test endpoints
+          echo "Testando endpoints..."
+          sleep 5
           
-          # Configure SSL automatically
-          echo "Configurando SSL automaticamente..."
-          sudo docker exec docker-certbot-1 certbot certonly \
-            --webroot \
-            --webroot-path=/var/www/certbot \
-            --email $LE_EMAIL \
-            --agree-tos \
-            --no-eff-email \
-            --non-interactive \
-            --force-renewal \
-            -d nftmarketplace.com.br \
-            -d www.nftmarketplace.com.br \
-            -d api.nftmarketplace.com.br || echo "SSL já configurado"
+          if [ "$CERT_EXISTS" = "true" ]; then
+            echo "Testando HTTPS endpoints..."
+            curl -I https://nftmarketplace.com.br 2>/dev/null | head -n 1 || echo "HTTPS não funcionando ainda"
+            curl -I https://api.nftmarketplace.com.br 2>/dev/null | head -n 1 || echo "API HTTPS não funcionando ainda"
+          fi
           
-          # Verify certificates exist
-          sudo docker exec docker-certbot-1 ls -la /etc/letsencrypt/live/ || echo "Certificados não encontrados"
-          
-          # Restart nginx to load SSL configuration
-          sudo docker restart docker-nginx-1
-          
-          # Wait for nginx to restart
-          sleep 15
-          
-          # Verify nginx is listening on port 443
-          sudo docker exec docker-nginx-1 netstat -tlnp | grep 443 || echo "Nginx não está escutando na 443"
-          
-          # Test HTTPS
-          curl -I https://nftmarketplace.com.br || echo "HTTPS frontend não funciona"
-          curl -I https://api.nftmarketplace.com.br || echo "HTTPS API não funciona"
-          
-          # Verify deployment version
-          echo "=== Verificação final do deploy ==="
-          echo "Versão deployada: \$TAG"
-          echo "Imagens em uso:"
-          sudo docker ps --format "table {{.Names}}\t{{.Image}}" | grep -E "(web|frontend)"
-          
-          # Final status
-          echo "Status final dos containers:"
-          sudo docker ps
-          EOF
+          echo "=== Deploy concluído ==="
+          DEPLOYSCRIPT
