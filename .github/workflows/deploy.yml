@@ -109,13 +109,24 @@ jobs:
           
           # Pull latest images
           echo "Fazendo pull das novas imagens..."
+          echo "Imagem web: ${REGISTRY}/${IMAGE_NAME}-web:${TAG}"
+          echo "Imagem frontend: ${REGISTRY}/${IMAGE_NAME}-frontend:${TAG}"
           sudo docker pull ${REGISTRY}/${IMAGE_NAME}-web:${TAG}
           sudo docker pull ${REGISTRY}/${IMAGE_NAME}-frontend:${TAG}
+          
+          # Remove old latest tags to force using new images
+          echo "Removendo tags latest antigas..."
+          sudo docker rmi ${REGISTRY}/${IMAGE_NAME}-web:latest 2>/dev/null || true
+          sudo docker rmi ${REGISTRY}/${IMAGE_NAME}-frontend:latest 2>/dev/null || true
           
           # Tag as latest
           echo "Marcando imagens como latest..."
           sudo docker tag ${REGISTRY}/${IMAGE_NAME}-web:${TAG} ${REGISTRY}/${IMAGE_NAME}-web:latest
           sudo docker tag ${REGISTRY}/${IMAGE_NAME}-frontend:${TAG} ${REGISTRY}/${IMAGE_NAME}-frontend:latest
+          
+          # Verify images
+          echo "Verificando imagens baixadas..."
+          sudo docker images | grep ${IMAGE_NAME} | grep -E "(web|frontend)"
           
           # Update .env file
           echo "Atualizando arquivo .env..."
@@ -158,8 +169,15 @@ jobs:
           
           # Start services with environment variables
           echo "Iniciando containers..."
+          echo "REGISTRY=${REGISTRY}"
+          echo "IMAGE_NAME=${IMAGE_NAME}"
+          echo "TAG=${TAG}"
           sudo env REGISTRY="${REGISTRY}" IMAGE_NAME="${IMAGE_NAME}" TAG="${TAG}" \
-            docker compose -f docker/docker-compose.prod.yml up -d
+            docker compose -f docker/docker-compose.prod.yml up -d --force-recreate
+          
+          # Verify containers are using the correct images
+          echo "Verificando imagens dos containers..."
+          sudo docker ps --format "table {{.Names}}\t{{.Image}}"
           
           # Wait for services to be ready
           echo "Aguardando serviços iniciarem..."
