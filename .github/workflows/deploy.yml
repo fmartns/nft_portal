@@ -111,22 +111,27 @@ jobs:
           echo "Fazendo pull das novas imagens..."
           echo "Imagem web: ${REGISTRY}/${IMAGE_NAME}-web:${TAG}"
           echo "Imagem frontend: ${REGISTRY}/${IMAGE_NAME}-frontend:${TAG}"
-          sudo docker pull ${REGISTRY}/${IMAGE_NAME}-web:${TAG}
-          sudo docker pull ${REGISTRY}/${IMAGE_NAME}-frontend:${TAG}
           
-          # Remove old latest tags to force using new images
+          # Remove old images to force fresh pull
           echo "Removendo tags latest antigas..."
           sudo docker rmi ${REGISTRY}/${IMAGE_NAME}-web:latest 2>/dev/null || true
           sudo docker rmi ${REGISTRY}/${IMAGE_NAME}-frontend:latest 2>/dev/null || true
+          sudo docker rmi ${REGISTRY}/${IMAGE_NAME}-web:${TAG} 2>/dev/null || true
+          sudo docker rmi ${REGISTRY}/${IMAGE_NAME}-frontend:${TAG} 2>/dev/null || true
+          
+          # Pull fresh images with specific tag
+          echo "Fazendo pull das imagens..."
+          sudo docker pull ${REGISTRY}/${IMAGE_NAME}-web:${TAG}
+          sudo docker pull ${REGISTRY}/${IMAGE_NAME}-frontend:${TAG}
           
           # Tag as latest
           echo "Marcando imagens como latest..."
           sudo docker tag ${REGISTRY}/${IMAGE_NAME}-web:${TAG} ${REGISTRY}/${IMAGE_NAME}-web:latest
           sudo docker tag ${REGISTRY}/${IMAGE_NAME}-frontend:${TAG} ${REGISTRY}/${IMAGE_NAME}-frontend:latest
           
-          # Verify images
-          echo "Verificando imagens baixadas..."
-          sudo docker images | grep ${IMAGE_NAME} | grep -E "(web|frontend)"
+          # Verify images with timestamp
+          echo "Verificando imagens baixadas (com timestamp)..."
+          sudo docker images --format "table {{.Repository}}\t{{.Tag}}\t{{.CreatedAt}}" | grep ${IMAGE_NAME} | grep -E "(web|frontend)"
           
           # Update .env file
           echo "Atualizando arquivo .env..."
@@ -168,16 +173,48 @@ jobs:
           fi
           
           # Start services with environment variables
-          echo "Iniciando containers..."
+          echo "========================================="
+          echo "Iniciando containers com configuração:"
           echo "REGISTRY=${REGISTRY}"
           echo "IMAGE_NAME=${IMAGE_NAME}"
           echo "TAG=${TAG}"
+          echo "========================================="
+          echo "Image web será: ${REGISTRY}/${IMAGE_NAME}-web:${TAG}"
+          echo "Image frontend será: ${REGISTRY}/${IMAGE_NAME}-frontend:${TAG}"
+          echo "========================================="
+          
+          # Verify TAG is not empty
+          if [ -z "${TAG}" ]; then
+            echo "ERRO: TAG está vazio! Abortando..."
+            exit 1
+          fi
+          
+          # Verify REGISTRY is ghcr.io
+          if [ "${REGISTRY}" != "ghcr.io" ]; then
+            echo "ERRO: REGISTRY deve ser ghcr.io, mas é ${REGISTRY}!"
+            echo "Abortando deployment para evitar usar registry errado..."
+            exit 1
+          fi
+          
+          # Verify we're using ghcr.io images
+          echo "Confirmando uso de ghcr.io..."
+          echo "Web image final: ${REGISTRY}/${IMAGE_NAME}-web:${TAG}"
+          echo "Frontend image final: ${REGISTRY}/${IMAGE_NAME}-frontend:${TAG}"
+          
           sudo env REGISTRY="${REGISTRY}" IMAGE_NAME="${IMAGE_NAME}" TAG="${TAG}" \
             docker compose -f docker/docker-compose.prod.yml up -d --force-recreate
           
           # Verify containers are using the correct images
           echo "Verificando imagens dos containers..."
           sudo docker ps --format "table {{.Names}}\t{{.Image}}"
+          
+          # Show which exact images are running
+          echo "Detalhes das imagens em execução:"
+          sudo docker ps --format "{{.Names}}\t{{.Image}}" | while read name image; do
+            echo "  $name: $image"
+            # Get actual digest of image
+            sudo docker inspect $image --format='{{.RepoDigests}}' 2>/dev/null || echo "    (sem digest)"
+          done
           
           # Wait for services to be ready
           echo "Aguardando serviços iniciarem..."
