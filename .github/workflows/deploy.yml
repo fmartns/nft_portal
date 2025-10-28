@@ -82,7 +82,7 @@ jobs:
           chmod 600 ~/.ssh/ec2_key
           
           # Deploy script
-          ssh -i ~/.ssh/ec2_key -o StrictHostKeyChecking=no "$EC2_USER@$EC2_HOST" bash -s << 'DEPLOYSCRIPT'
+          ssh -i ~/.ssh/ec2_key -o StrictHostKeyChecking=no "$EC2_USER@$EC2_HOST" bash -c "$(cat << 'DEPLOYSCRIPT'
           set -e
           
           echo "=== Iniciando deploy da versão ${{ github.sha }} ==="
@@ -91,6 +91,11 @@ jobs:
           export REGISTRY="${{ env.REGISTRY }}"
           export IMAGE_NAME="${{ env.IMAGE_NAME }}"
           export TAG="${{ github.sha }}"
+          
+          echo "Variáveis de ambiente exportadas:"
+          echo "REGISTRY=\$REGISTRY"
+          echo "IMAGE_NAME=\$IMAGE_NAME"  
+          echo "TAG=\$TAG"
           
           # Login to GitHub Container Registry
           echo "Autenticando com GitHub Container Registry..."
@@ -271,3 +276,4 @@ jobs:
           
           echo "=== Deploy concluído ==="
           DEPLOYSCRIPT
+          )"
